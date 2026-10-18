@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Japan Emergency Alerts / 日本の緊急情報アラート</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any">
+<style>
+  :root { color-scheme: light; --accent: #b3261e; --ok: #1b7f3b; --muted: #666; --line: #ccc; }
+  body { background: #fff; color: #1a1a1a; font: 16px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; margin: 0; }
+  main { max-width: 46rem; margin: 0 auto; padding: 1rem 1rem 3rem; }
+  h1 { font-size: 1.5rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.15rem; margin: 1.75rem 0 .5rem; }
+  small, .ja { color: var(--muted); font-weight: normal; }
+  .intro { color: var(--muted); margin-top: 0; }
+  .box { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem 1rem; margin: 1rem 0; }
+  .errors { border-color: var(--accent); background: rgba(179, 38, 30, .08); }
+  .errors li { color: var(--accent); }
+  .notes { border-color: #b58105; background: rgba(181, 129, 5, .1); }
+  .saved { border-color: var(--ok); background: rgba(27, 127, 59, .1); }
+  input[type=text] { width: 100%; box-sizing: border-box; padding: .5rem; font: inherit; }
+  select { padding: .4rem; font: inherit; max-width: 100%; }
+  fieldset { border: 1px solid var(--line); border-radius: .5rem; margin: .5rem 0; padding: .5rem .75rem; }
+  legend { font-weight: 600; padding: 0 .25rem; }
+  .places label { display: inline-block; margin: .15rem 1rem .15rem 0; white-space: nowrap; }
+  button { font: inherit; padding: .5rem 1rem; cursor: pointer; }
+  button.small { font-size: .8rem; padding: .25rem .6rem; white-space: nowrap; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .25rem 0; }
+  .row input[type=text] { flex: 1 1 14rem; width: auto; min-width: 0; }
+  .row label.check { flex: 1 1 auto; }
+  #popup { width: 1.5rem; height: 1.5rem; vertical-align: middle; margin-right: .35rem; }
+  .result { font-size: .9rem; }
+  button.primary { background: var(--accent); color: #fff; border: 0; border-radius: .4rem; padding: .7rem 1.5rem; font-weight: 600; }
+  #test-result.ok, #popup-result.ok { color: var(--ok); } #test-result.bad, #popup-result.bad { color: var(--accent); }
+  .hint { color: var(--muted); font-size: .9rem; }
+  ul.plain { list-style: none; padding: 0; margin: .25rem 0; }
+  .sent { color: var(--ok); } .notsent { color: var(--muted); }
+  details { border-top: 1px solid var(--line); padding: .35rem 0; }
+  summary { cursor: pointer; }
+  pre { white-space: pre-wrap; word-break: break-word; margin: .4rem 0 0; font: inherit; }
+  footer { margin-top: 2rem; color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>Japan Emergency Alerts <small class="ja">日本の緊急情報アラート</small></h1>
+<p class="intro">An unofficial relay of Japan's emergency alerts. It does not replace the alerts a Japanese phone receives.<br>
+<span class="ja">日本の緊急情報を中継する非公式のプログラムです。日本の携帯電話で受信する緊急速報の代わりにはなりません。</span></p>
+
+{{if .Saved}}<div class="box saved" role="status"><strong>Saved. Watching has started.</strong> <span class="ja">保存しました。監視を開始しました。</span></div>{{end}}
+{{if .ErrorList}}<div class="box errors" role="alert"><strong>Please fix this before saving. <span class="ja">保存する前に修正してください。</span></strong>
+<ul>{{range .ErrorList}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+{{if .Notes}}<div class="box notes"><ul class="plain">{{range .Notes}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+
+<h2>Status <span class="ja">状態</span></h2>
+<div class="box">
+  <div id="summary">{{if .Running}}{{.Summary}}{{else}}Not set up yet <span class="ja">まだ設定されていません</span>{{end}}</div>
+  <ul class="plain hint" id="sources">{{range .Sources}}<li>{{.}}</li>{{end}}</ul>
+</div>
+
+<form method="post" action="/save">
+<h2>1. Where should alerts go? <span class="ja">通知先</span></h2>
+<label for="webhook">Webhook address (optional if you use the pop-up) <span class="ja">Webhook のアドレス（ポップアップを使う場合は省略できます）</span></label>
+<div class="row"><input type="text" id="webhook" name="webhook" autocomplete="off" spellcheck="false"
+       placeholder="https://discord.com/api/webhooks/..." value="{{.WebhookTyped}}"><button type="button" class="small" id="test">Send test message <span class="ja">テスト送信</span></button></div>
+<div class="result"><span id="test-result" role="status"></span></div>
+{{range .WebhookErrors}}<div class="hint" style="color:var(--accent)">{{.}}</div>{{end}}
+{{if .WebhookSaved}}<div class="hint">Clear the box and save to remove the saved address. <span class="ja">空にして保存すると、保存済みのアドレスが削除されます。</span></div>{{end}}
+<p class="hint">Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL<br>
+<span class="ja">Discord：チャンネルの設定 → 連携サービス → ウェブフック → 新しいウェブフック → ウェブフックURLをコピー</span></p>
+<div class="row"><label class="check"><input type="checkbox" name="popup" value="on" id="popup"{{if .Popup}} checked{{end}}>
+   <strong>Show a pop-up window on this computer <span class="ja">このパソコンにポップアップを表示する</span></strong></label><button type="button" class="small" id="test-popup">Show a test pop-up <span class="ja">ポップアップのテスト</span></button></div>
+<div class="result"><span id="popup-result" role="status"></span></div>
+<p class="hint">Use a webhook, a pop-up, or both. <span class="ja">Webhook とポップアップは、どちらか一方でも両方でも使えます。</span></p>
+
+<h2>2. Where are you? <span class="ja">現在地（都道府県）</span></h2>
+<p class="hint">Pick every prefecture you want alerts for. <span class="ja">通知を受け取りたい都道府県をすべて選んでください。</span></p>
+{{range .LocationErrors}}<div class="hint" style="color:var(--accent)">{{.}}</div>{{end}}
+<p><label><input type="checkbox" name="everywhere" value="on" id="everywhere"{{if .Everywhere}} checked{{end}}>
+   <strong>Whole Japan <span class="ja">日本全国</span></strong></label>
+   <span class="hint">(more messages / 通知が多くなります)</span></p>
+<div class="places">
+{{range .Groups}}<fieldset><legend>{{.English}} <span class="ja">{{.Japanese}}</span></legend>
+{{range .Prefectures}}<label><input type="checkbox" name="location" value="{{.Code}}"{{if .Checked}} checked{{end}}> {{.English}} <span class="ja">{{.Japanese}}</span></label>
+{{end}}</fieldset>
+{{end}}</div>
+
+<h2>3. Minimum earthquake strength <span class="ja">通知する最小の震度</span></h2>
+<p class="hint">You will be told about earthquakes at least this strong in your prefecture. Tsunami, volcano and special weather warnings do not depend on this setting.<br>
+<span class="ja">お住まいの都道府県でこの震度以上の地震を通知します。津波・火山・特別警報はこの設定とは関係なく通知されます。</span></p>
+{{range .IntensityErrors}}<div class="hint" style="color:var(--accent)">{{.}}</div>{{end}}
+<select name="min_intensity" aria-label="Minimum earthquake strength">
+{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.English}} / {{.Japanese}}</option>
+{{end}}</select>
+
+<p style="margin-top:2rem"><button type="submit" class="primary">Save and start <span class="ja">保存して開始</span></button></p>
+</form>
+
+<h2>Recent activity <span class="ja">最近の通知</span></h2>
+<div class="box" id="recent">
+{{if .Recent}}{{range .Recent}}<details><summary><span class="{{if .Sent}}sent{{else}}notsent{{end}}">{{.Result}}</span> · {{.When}} · {{.Label}}{{if .Title}} · {{.Title}}{{end}}</summary><pre>{{.Text}}</pre></details>
+{{end}}{{else}}<span class="hint">Nothing yet. <span class="ja">まだありません。</span></span>{{end}}
+</div>
+
+<footer>Version {{.Version}} · Source: Japan Meteorological Agency, P2P Quake <span class="ja">出典：気象庁、P2P地震情報</span></footer>
+</main>
+<script nonce="{{.Nonce}}">
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var testButton = $('test'), result = $('test-result');
+  testButton.addEventListener('click', function () {
+    result.className = ''; result.textContent = '…';
+    fetch('/test', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({ webhook: $('webhook').value }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { result.className = j.ok ? 'ok' : 'bad'; result.textContent = (j.ok ? '✓ ' : '✗ ') + j.message; })
+      .catch(function (e) { result.className = 'bad'; result.textContent = '✗ ' + e; });
+  });
+  var popupButton = $('test-popup'), popupResult = $('popup-result');
+  popupButton.addEventListener('click', function () {
+    popupResult.className = ''; popupResult.textContent = '…';
+    fetch('/test-popup', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({}) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { popupResult.className = j.ok ? 'ok' : 'bad'; popupResult.textContent = (j.ok ? '✓ ' : '✗ ') + j.message; })
+      .catch(function (e) { popupResult.className = 'bad'; popupResult.textContent = '✗ ' + e; });
+  });
+  var everywhere = $('everywhere');
+  function toggle() {
+    document.querySelectorAll('input[name=location]').forEach(function (box) { box.disabled = everywhere.checked; });
+  }
+  everywhere.addEventListener('change', toggle); toggle();
+
+  function item(a) {
+    var d = document.createElement('details'), s = document.createElement('summary'), r = document.createElement('span');
+    r.className = a.sent ? 'sent' : 'notsent'; r.textContent = a.result;
+    s.appendChild(r); s.appendChild(document.createTextNode(' · ' + a.when + ' · ' + a.label + (a.title ? ' · ' + a.title : '')));
+    var p = document.createElement('pre'); p.textContent = a.text;
+    d.appendChild(s); d.appendChild(p); return d;
+  }
+  function refresh() {
+    fetch('/status.json', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        if (!s) { return; }
+        $('summary').textContent = s.running ? s.summary : 'Not set up yet / まだ設定されていません';
+        var src = $('sources'); src.textContent = '';
+        s.sources.forEach(function (line) { var li = document.createElement('li'); li.textContent = line; src.appendChild(li); });
+        var rec = $('recent'); rec.textContent = '';
+        if (s.recent.length === 0) { rec.textContent = 'Nothing yet. / まだありません。'; }
+        s.recent.forEach(function (a) { rec.appendChild(item(a)); });
+      })
+      .catch(function () {});
+  }
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>
