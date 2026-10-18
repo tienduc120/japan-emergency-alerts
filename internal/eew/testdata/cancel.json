@@ -1,0 +1,12 @@
+{
+  "areas": null,
+  "cancelled": true,
+  "code": 556,
+  "earthquake": null,
+  "id": "6ad19ea2e88ee598246bf3f1",
+  "issue": {"eventId": "20261018140005", "serial": "2", "time": "2026/10/18 14:00:50"},
+  "time": "2026/10/18 14:00:50.829",
+  "timestamp": {"convert": "2026/10/18 14:00:50.82", "register": "2026/10/18 14:00:50.829"},
+  "user_agent": "jmaxml-seis-parser-go, relay, register-api",
+  "ver": "20231023"
+}

@@ -1,0 +1,30 @@
+{
+  "areas": [
+    {"arrivalTime": null, "kindCode": "10", "name": "千葉県北西部", "pref": "千葉", "scaleFrom": 50, "scaleTo": 55},
+    {"arrivalTime": null, "kindCode": "10", "name": "東京都２３区", "pref": "東京", "scaleFrom": 40, "scaleTo": 45},
+    {"arrivalTime": null, "kindCode": "10", "name": "東京都多摩東部", "pref": "東京", "scaleFrom": 45, "scaleTo": 50},
+    {"arrivalTime": null, "kindCode": "10", "name": "神奈川県東部", "pref": "神奈川", "scaleFrom": 40, "scaleTo": 40},
+    {"arrivalTime": null, "kindCode": "11", "name": "新島", "pref": "伊豆諸島", "scaleFrom": 45, "scaleTo": 99}
+  ],
+  "cancelled": false,
+  "code": 556,
+  "earthquake": {
+    "arrivalTime": "2026/10/18 14:00:10",
+    "condition": "",
+    "hypocenter": {
+      "depth": 40,
+      "latitude": 35.3,
+      "longitude": 140.6,
+      "magnitude": 6.4,
+      "name": "千葉県東方沖",
+      "reduceName": "千葉県東方沖\n"
+    },
+    "originTime": "2026/10/18 14:00:03"
+  },
+  "id": "6ad19cb9e88ee598246bf3ef",
+  "issue": {"eventId": "20261018140005", "serial": "1", "time": "2026/10/18 14:00:24"},
+  "time": "2026/10/18 14:00:24.752",
+  "timestamp": {"convert": "2026/10/18 14:00:24.712", "register": "2026/10/18 14:00:24.752"},
+  "user_agent": "jmaxml-seis-parser-go, relay, register-api",
+  "ver": "20231023"
+}
