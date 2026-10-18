@@ -1,0 +1,16 @@
+# Local, uncommitted working plan, notes and scratch
+.local/
+
+# Built binaries and release output
+/alerts
+/alerts.exe
+/dist/
+
+# Real webhook URLs live here, never in the repository
+.env
+
+# Claude Code reads skills through this link to .agents/skills
+.claude/skills
+
+# Personal Claude Code settings
+.claude/settings.local.json
