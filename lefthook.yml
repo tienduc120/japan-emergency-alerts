@@ -1,0 +1,14 @@
+# Git hooks. Never bypass with --no-verify, and never loosen a hook to make a change pass.
+pre-commit:
+  jobs:
+    - name: lint
+      run: golangci-lint run ./...
+    - name: vet
+      run: go vet ./...
+    - name: test
+      run: go test -race -timeout 120s -count=1 ./...
+
+pre-push:
+  jobs:
+    - name: vulnerabilities
+      run: govulncheck ./...
