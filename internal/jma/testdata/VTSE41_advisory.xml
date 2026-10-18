@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+	<Title>津波警報・注意報・予報a</Title>
+	<DateTime>2026-10-18T03:10:00Z</DateTime>
+	<Status>通常</Status>
+	<EditorialOffice>気象庁本庁</EditorialOffice>
+	<PublishingOffice>気象庁</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+	<Title>津波注意報</Title>
+	<ReportDateTime>2026-10-18T12:10:00+09:00</ReportDateTime>
+	<TargetDateTime>2026-10-18T12:10:00+09:00</TargetDateTime>
+	<EventID>20261018120500</EventID>
+	<InfoType>発表</InfoType>
+	<Serial></Serial>
+	<InfoKind>津波警報・注意報・予報</InfoKind>
+	<InfoKindVersion>1.0_1</InfoKindVersion>
+	<Headline>
+		<Text>津波注意報を発表しました。</Text>
+		<Information type="津波予報領域表現">
+			<Item>
+				<Kind><Name>津波注意報</Name><Code>62</Code></Kind>
+				<Areas codeType="津波予報区">
+					<Area><Name>北海道太平洋沿岸東部</Name><Code>100</Code></Area>
+				</Areas>
+			</Item>
+		</Information>
+	</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/seismology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+	<Tsunami>
+	<Forecast>
+		<Item>
+			<Area><Name>北海道太平洋沿岸東部</Name><Code>100</Code></Area>
+			<Category>
+				<Kind><Name>津波注意報</Name><Code>62</Code></Kind>
+				<LastKind><Name>津波なし</Name><Code>00</Code></LastKind>
+			</Category>
+		</Item>
+	</Forecast>
+	</Tsunami>
+</Body>
+</Report>

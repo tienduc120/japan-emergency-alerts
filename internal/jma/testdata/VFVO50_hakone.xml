@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+<Title>噴火警報・予報</Title>
+<DateTime>2020-05-22T04:26:36Z</DateTime>
+<Status>通常</Status>
+<EditorialOffice>気象庁本庁</EditorialOffice>
+<PublishingOffice>気象庁</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+<Title>火山名  箱根山  噴火警報（居住地域）</Title>
+<ReportDateTime>2020-05-22T13:26:00+09:00</ReportDateTime>
+<TargetDateTime>2020-05-22T13:26:00+09:00</TargetDateTime>
+<EventID>315</EventID>
+<InfoType>発表</InfoType>
+<Serial />
+<InfoKind>噴火警報・予報</InfoKind>
+<InfoKindVersion>1.0_0</InfoKindVersion>
+<Headline>
+<Text>＜箱根山に噴火警報（噴火警戒レベル５、避難）を発表＞
+　居住地域に重大な被害を及ぼす噴火が発生したことから、危険な居住地域では、市町村の指示に従い、避難してください。
+＜噴火警戒レベルを１（活火山であることに留意）から５（避難）に引上げ＞</Text>
+</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/volcanology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<VolcanoInfo type="噴火警報・予報（対象火山）">
+<Item>
+<Kind>
+<Name>レベル５（避難）</Name>
+<Code>15</Code>
+<Condition>引上げ</Condition>
+</Kind>
+<Areas codeType="火山名">
+<Area>
+<Name>箱根山</Name>
+<Code>315</Code>
+</Area>
+</Areas>
+</Item>
+</VolcanoInfo>
+<VolcanoInfo type="噴火警報・予報（対象市町村等）">
+<Item>
+<Kind>
+<Name>噴火警報</Name>
+<Code>01</Code>
+<Condition>発表</Condition>
+</Kind>
+<Areas codeType="気象・地震・火山情報／市町村等">
+<Area>
+<Name>神奈川県箱根町</Name>
+<Code>1438200</Code>
+</Area>
+</Areas>
+</Item>
+</VolcanoInfo>
+<VolcanoInfoContent>
+<VolcanoHeadline>＜箱根山に噴火警報（噴火警戒レベル５、避難）を発表＞</VolcanoHeadline>
+<VolcanoActivity>　箱根山では、本日（２２日）１３時２３分頃、噴火が発生しました。
+　居住地域に重大な影響を及ぼす噴火が切迫していると考えられますので、厳重な警戒をしてください。</VolcanoActivity>
+</VolcanoInfoContent>
+</Body>
+</Report>

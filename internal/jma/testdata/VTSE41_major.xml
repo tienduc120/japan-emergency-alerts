@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+	<Title>津波警報・注意報・予報a</Title>
+	<DateTime>2011-03-11T05:49:59Z</DateTime>
+	<Status>通常</Status>
+	<EditorialOffice>大阪管区気象台</EditorialOffice>
+	<PublishingOffice>気象庁</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+	<Title>大津波警報・津波警報・津波注意報・津波予報</Title>
+	<ReportDateTime>2011-03-11T14:49:00+09:00</ReportDateTime>
+	<TargetDateTime>2011-03-11T14:49:00+09:00</TargetDateTime>
+	<EventID>20110311144640</EventID>
+	<InfoType>発表</InfoType>
+	<Serial></Serial>
+	<InfoKind>津波警報・注意報・予報</InfoKind>
+	<InfoKindVersion>1.0_1</InfoKindVersion>
+	<Headline>
+		<Text>東日本大震災クラスの津波が来襲します。
+大津波警報・津波警報を発表しました。
+ただちに避難してください。</Text>
+		<Information type="津波予報領域表現">
+			<Item>
+				<Kind><Name>大津波警報</Name><Code>52</Code></Kind>
+				<Areas codeType="津波予報区">
+					<Area><Name>東北地方太平洋沿岸</Name><Code>291</Code></Area>
+				</Areas>
+			</Item>
+			<Item>
+				<Kind><Name>津波警報</Name><Code>51</Code></Kind>
+				<Areas codeType="津波予報区">
+					<Area><Name>北海道太平洋沿岸中部</Name><Code>101</Code></Area>
+					<Area><Name>茨城県</Name><Code>300</Code></Area>
+				</Areas>
+			</Item>
+		</Information>
+	</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/seismology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+	<Tsunami>
+	<Forecast>
+		<Item>
+			<Area><Name>岩手県</Name><Code>210</Code></Area>
+			<Category>
+				<Kind><Name>大津波警報：発表</Name><Code>53</Code></Kind>
+				<LastKind><Name>津波なし</Name><Code>00</Code></LastKind>
+			</Category>
+		</Item>
+		<Item>
+			<Area><Name>茨城県</Name><Code>300</Code></Area>
+			<Category>
+				<Kind><Name>津波警報</Name><Code>51</Code></Kind>
+				<LastKind><Name>津波なし</Name><Code>00</Code></LastKind>
+			</Category>
+		</Item>
+	</Forecast>
+	</Tsunami>
+</Body>
+</Report>

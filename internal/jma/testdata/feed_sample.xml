@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" lang="ja">
+  <title>高頻度（地震火山）</title>
+  <subtitle>JMAXML publishing feed</subtitle>
+  <updated>2026-10-18T20:01:01+09:00</updated>
+  <id>https://www.data.jma.go.jp/developer/xml/feed/eqvol.xml#short_1792321261</id>
+  <link rel="related" href="https://www.jma.go.jp/"/>
+  <link rel="self" href="https://www.data.jma.go.jp/developer/xml/feed/eqvol.xml"/>
+  <rights type="html"><![CDATA[
+<a href="https://www.jma.go.jp/jma/en/copyright.html">Terms of Use</a>
+]]></rights>
+  <entry>
+    <title>降灰予報（定時）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20261018110033_0_VFVO53_010000.xml</id>
+    <updated>2026-10-18T11:00:00Z</updated>
+    <author>
+      <name>気象庁</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20261018110033_0_VFVO53_010000.xml"/>
+    <content type="text">【火山名　阿蘇山　降灰予報（定時）】　現在、阿蘇山は噴火警戒レベル２（火口周辺規制）です。</content>
+  </entry>
+  <entry>
+    <title>噴火に関する火山観測報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20261018081200_0_VFVO52_400000.xml</id>
+    <updated>2026-10-18T08:12:00Z</updated>
+    <author>
+      <name>福岡管区気象台　鹿児島地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20261018081200_0_VFVO52_400000.xml"/>
+    <content type="text">【火山名　桜島　噴火に関する火山観測報】火　　山：桜島
+日　　時：2026年10月18日17時04分(180804UTC)
+現　　象：噴火</content>
+  </entry>
+  <entry>
+    <title>震源・震度に関する情報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20261018074002_0_VXSE53_270000.xml</id>
+    <updated>2026-10-18T07:40:02Z</updated>
+    <author>
+      <name>気象庁</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20261018074002_0_VXSE53_270000.xml"/>
+    <content type="text">【震源・震度情報】１８日１６時３７分ころ、地震がありました。</content>
+  </entry>
+</feed>

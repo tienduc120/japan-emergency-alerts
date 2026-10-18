@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+<Title>気象特別警報・警報・注意報</Title>
+<DateTime>2013-09-03T20:30:00Z</DateTime>
+<Status>通常</Status>
+<EditorialOffice>大阪管区気象台</EditorialOffice>
+<PublishingOffice>奈良地方気象台</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+<Title>奈良県気象特別警報・警報・注意報</Title>
+<ReportDateTime>2013-09-04T05:30:00+09:00</ReportDateTime>
+<TargetDateTime>2013-09-04T05:30:00+09:00</TargetDateTime>
+<EventID></EventID>
+<InfoType>発表</InfoType>
+<Serial></Serial>
+<InfoKind>気象特別警報・警報・注意報</InfoKind>
+<InfoKindVersion>1.1_0</InfoKindVersion>
+<Headline>
+<Text>【特別警報（大雨）】奈良県では、４日昼過ぎまで土砂災害に警戒して下さい。</Text>
+</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/meteorology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<Warning type="気象警報・注意報（府県予報区等）">
+<Item>
+<Kind><Name>大雨特別警報</Name><Code>33</Code><Status>発表</Status></Kind>
+<Area><Name>奈良県</Name><Code>290000</Code></Area>
+</Item>
+</Warning>
+</Body>
+</Report>

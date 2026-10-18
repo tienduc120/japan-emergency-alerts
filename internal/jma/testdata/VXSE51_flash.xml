@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://xml.kishou.go.jp/jmaxml1/" xmlns:jmx="http://xml.kishou.go.jp/jmaxml1/">
+<Control>
+<Title>震度速報</Title>
+<DateTime>2026-10-18T05:01:10Z</DateTime>
+<Status>通常</Status>
+<EditorialOffice>気象庁本庁</EditorialOffice>
+<PublishingOffice>気象庁</PublishingOffice>
+</Control>
+<Head xmlns="http://xml.kishou.go.jp/jmaxml1/informationBasis1/">
+<Title>震度速報</Title>
+<ReportDateTime>2026-10-18T14:01:00+09:00</ReportDateTime>
+<TargetDateTime>2026-10-18T13:59:00+09:00</TargetDateTime>
+<EventID>20261018135900</EventID>
+<InfoType>発表</InfoType>
+<Serial>1</Serial>
+<InfoKind>震度速報</InfoKind>
+<InfoKindVersion>1.0_1</InfoKindVersion>
+<Headline>
+<Text>＜震度速報＞　１８日１３時５９分ころ、強い揺れを感じた地域があります。</Text>
+</Headline>
+</Head>
+<Body xmlns="http://xml.kishou.go.jp/jmaxml1/body/seismology1/" xmlns:jmx_eb="http://xml.kishou.go.jp/jmaxml1/elementBasis1/">
+<Intensity>
+<Observation>
+<CodeDefine>
+<Type xpath="Pref/Code">地震情報／都道府県等</Type>
+<Type xpath="Pref/Area/Code">地震情報／細分区域</Type>
+</CodeDefine>
+<MaxInt>5+</MaxInt>
+<Pref>
+<Name>静岡県</Name>
+<Code>22</Code>
+<MaxInt>5+</MaxInt>
+<Area>
+<Name>静岡県伊豆</Name>
+<Code>440</Code>
+<MaxInt>5+</MaxInt>
+</Area>
+</Pref>
+<Pref>
+<Name>東京都</Name>
+<Code>13</Code>
+<MaxInt>4</MaxInt>
+<Area>
+<Name>東京都２３区</Name>
+<Code>350</Code>
+<MaxInt>4</MaxInt>
+</Area>
+</Pref>
+</Observation>
+</Intensity>
+</Body>
+</Report>
