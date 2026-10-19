@@ -28,6 +28,7 @@ const ServerName = "japan-emergency-alerts"
 
 const (
 	cookieName   = "session"
+	againParam   = "again"
 	sessionBytes = 16
 	nonceBytes   = 16
 	maxFormBytes = 1 << 16
@@ -72,6 +73,8 @@ type Settings interface {
 	Test(ctx context.Context, webhook string) error
 	// TestPopup shows a test pop-up window on this computer.
 	TestPopup(ctx context.Context) error
+	// Quit stops the program. The program has no window of its own on Windows, so the page is where a person stops it.
+	Quit()
 }
 
 // Options say how the server identifies itself and who may talk to it.
@@ -137,6 +140,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.post(w, r, s.test)
 	case "/test-popup":
 		s.post(w, r, s.testPopup)
+	case "/quit":
+		s.post(w, r, s.quit)
 	default:
 		http.NotFound(w, r)
 	}
@@ -153,7 +158,12 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 			Name: cookieName, Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		},
 	)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	target := "/"
+	if r.URL.Query().Get(againParam) == "1" {
+		// A second copy of the program asked for this page; the page says so, and where to stop the first one.
+		target += "?" + againParam + "=1"
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *server) authenticated(r *http.Request) bool {
@@ -203,6 +213,16 @@ func (s *server) testPopup(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(reply)
+}
+
+// quit stops the program and answers first, so the person is told rather than left with a broken connection.
+func (s *server) quit(w http.ResponseWriter, _ *http.Request) {
+	s.app.Quit()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(`<!doctype html><meta charset="utf-8"><title>Stopped / 停止しました</title>` +
+		`<body style="font:16px/1.6 system-ui,sans-serif;margin:2rem;background:#fff;color:#1a1a1a">` +
+		`<p>The program has stopped. You can close this tab. To start it again, open the program.</p>` +
+		`<p>プログラムを停止しました。このタブを閉じてください。もう一度起動するには、プログラムを開いてください。</p></body>`))
 }
 
 func (s *server) status(w http.ResponseWriter, _ *http.Request) {

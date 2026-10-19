@@ -40,6 +40,13 @@ type fakeSettings struct {
 	saved       []config.File
 	tested      []string
 	popupsShown int
+	quits       int
+}
+
+func (f *fakeSettings) Quit() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.quits++
 }
 
 func (f *fakeSettings) TestPopup(context.Context) error {
@@ -221,7 +228,7 @@ func TestThePageIsBilingualAndOffersEveryPrefectureAsAChecklist(t *testing.T) {
 	for _, want := range []string{
 		"Where should alerts go?", "通知先", "Where are you?", "現在地", "Whole Japan", "日本全国",
 		"Kanto", "関東", "Kansai", "近畿", "Tokyo", "東京都", "Okinawa", "沖縄県",
-		"Save and start", "保存して開始", "Send test message", "テスト送信", "Recent activity", "最近の通知",
+		"Save and start", "保存して開始", "テスト", "Recent activity", "最近の通知",
 	} {
 		if !strings.Contains(res.body, want) {
 			t.Errorf("page lacks %q", want)
@@ -657,13 +664,157 @@ func TestThePageOffersAPopupBesideTheWebhookInBothLanguages(t *testing.T) {
 
 	res := send(h, http.MethodGet, "/", nil, cookie, nil)
 
-	for _, want := range []string{"Show a pop-up window on this computer", "このパソコンにポップアップを表示", "Show a test pop-up", "ポップアップのテスト"} {
+	for _, want := range []string{"Show a pop-up window on this computer", "このパソコンにポップアップを表示"} {
 		if !strings.Contains(res.body, want) {
 			t.Errorf("page lacks %q", want)
 		}
 	}
 	if popupBox(res.body) == "" {
 		t.Fatal("no pop-up checkbox")
+	}
+	if tag := regexp.MustCompile(`(?s)<button[^>]*id="test-popup"[^>]*>.*?</button>`).
+		FindString(res.body); !strings.Contains(
+		tag,
+		"テスト",
+	) {
+		t.Errorf("the pop-up's test button is %q, want a button with a Japanese label too", tag)
+	}
+}
+
+func TestAFieldAndItsTestButtonNeverSplitAcrossLines(t *testing.T) {
+	t.Parallel()
+	h := newHandler(&fakeSettings{snap: running()})
+	cookie := login(t, h)
+
+	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+
+	if !regexp.MustCompile(`\.row\s*\{[^}]*flex-wrap:\s*nowrap`).MatchString(res.body) {
+		t.Error("a row must not wrap, or the test button drops under its field on a narrow window")
+	}
+	if !regexp.MustCompile(`\.row label\.check\s*\{[^}]*min-width:\s*0`).MatchString(res.body) {
+		t.Error("the label in a row must be allowed to shrink, so its words wrap and the button stays put")
+	}
+}
+
+func TestTheSaveButtonShowsItsJapaneseAsClearlyAsItsEnglish(t *testing.T) {
+	t.Parallel()
+	h := newHandler(&fakeSettings{snap: running()})
+	cookie := login(t, h)
+
+	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+
+	if !regexp.MustCompile(`button\.primary\s+\.ja\s*\{[^}]*color:\s*inherit`).MatchString(res.body) {
+		t.Error("the grey Japanese text is hard to read on the red button; it must take the button's colour")
+	}
+}
+
+func TestTheDiscordStepsAreTuckedAwayUntilAskedFor(t *testing.T) {
+	t.Parallel()
+	h := newHandler(&fakeSettings{snap: running()})
+	cookie := login(t, h)
+
+	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+
+	if !regexp.MustCompile(`(?s)<details[^>]*>\s*<summary>[^<]*Discord.*?Copy Webhook URL.*?</details>`).
+		MatchString(res.body) {
+		t.Errorf("the steps for getting a Discord webhook belong in a closed section of their own:\n%s", res.body)
+	}
+}
+
+func TestTheStopButtonIsAtTheTopSoNobodyHasToScrollForIt(t *testing.T) {
+	t.Parallel()
+	h := newHandler(&fakeSettings{snap: running()})
+	cookie := login(t, h)
+
+	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+
+	stop, save := strings.Index(res.body, `action="/quit"`), strings.Index(res.body, `action="/save"`)
+	if stop < 0 || save < 0 || stop > save {
+		t.Errorf("the Stop button is at %d and the settings form at %d, want the button first", stop, save)
+	}
+}
+
+func TestTheStopButtonCannotBePressedWhileNothingIsRunning(t *testing.T) {
+	t.Parallel()
+	stopTag := func(snap web.Snapshot) string {
+		h := newHandler(&fakeSettings{snap: snap})
+		res := send(h, http.MethodGet, "/", nil, login(t, h), nil)
+		return regexp.MustCompile(`<button[^>]*id="stop"[^>]*>`).FindString(res.body)
+	}
+
+	idle, watching := stopTag(web.Snapshot{}), stopTag(running())
+
+	if idle == "" || !strings.Contains(idle, " disabled") {
+		t.Errorf("with nothing running the button is %q, want it disabled", idle)
+	}
+	if watching == "" || strings.Contains(watching, "disabled") {
+		t.Errorf("while watching the button is %q, want it enabled", watching)
+	}
+	h := newHandler(&fakeSettings{snap: running()})
+	page := send(h, http.MethodGet, "/", nil, login(t, h), nil)
+	if !strings.Contains(page.body, "$('stop').disabled") {
+		t.Error("the live update must also enable and disable the button, or it would go stale after saving")
+	}
+}
+
+func TestOpeningTheProgramAgainSaysItIsAlreadyRunning(t *testing.T) {
+	t.Parallel()
+	h := newHandler(&fakeSettings{snap: running()})
+
+	again := send(h, http.MethodGet, "/?key="+key+"&again=1", nil, nil, nil)
+	first := send(h, http.MethodGet, "/?key="+key, nil, nil, nil)
+	cookie := login(t, h)
+	withNote := send(h, http.MethodGet, "/?again=1", nil, cookie, nil)
+	without := send(h, http.MethodGet, "/", nil, cookie, nil)
+
+	if again.header.Get("Location") != "/?again=1" || first.header.Get("Location") != "/" {
+		t.Errorf("redirects %q and %q, want the marker kept only when the second copy asked for it",
+			again.header.Get("Location"), first.header.Get("Location"))
+	}
+	if !strings.Contains(withNote.body, "already running") || !strings.Contains(withNote.body, "すでに起動") {
+		t.Errorf("the page lacks a note, in both languages, that the program was already running:\n%s", withNote.body)
+	}
+	if strings.Contains(without.body, "already running") {
+		t.Error("an ordinary visit must not claim the program was opened again")
+	}
+}
+
+func TestThePageCanStopTheProgramAndOnlyForSomeoneSignedInFromThisPage(t *testing.T) {
+	t.Parallel()
+	app := &fakeSettings{snap: running()}
+	h := newHandler(app)
+	cookie := login(t, h)
+
+	page := send(h, http.MethodGet, "/", nil, cookie, nil)
+	noCookie := send(h, http.MethodPost, "/quit", url.Values{}, nil, sameOrigin())
+	foreign := send(
+		h,
+		http.MethodPost,
+		"/quit",
+		url.Values{},
+		cookie,
+		map[string]string{"Origin": "https://evil.example"},
+	)
+	get := send(h, http.MethodGet, "/quit", nil, cookie, nil)
+	if app.quits != 0 {
+		t.Fatalf("%d stops after refused requests, want none", app.quits)
+	}
+	ok := send(h, http.MethodPost, "/quit", url.Values{}, cookie, sameOrigin())
+
+	if !strings.Contains(page.body, `action="/quit"`) || !strings.Contains(page.body, "Stop running") ||
+		!strings.Contains(page.body, "停止") {
+		t.Error("the page needs a Stop button, in both languages: with no window there is no other way to stop it")
+	}
+	if noCookie.code != http.StatusForbidden || foreign.code != http.StatusForbidden || get.code == http.StatusOK {
+		t.Errorf("no cookie %d, foreign origin %d, GET %d, want all refused", noCookie.code, foreign.code, get.code)
+	}
+	if ok.code != http.StatusOK || app.quits != 1 || !strings.Contains(ok.body, "停止") {
+		t.Errorf(
+			"status %d, %d stops, body:\n%s\nwant one stop and a page saying so in both languages",
+			ok.code,
+			app.quits,
+			ok.body,
+		)
 	}
 }
 

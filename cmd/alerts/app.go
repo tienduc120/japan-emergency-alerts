@@ -50,6 +50,8 @@ type app struct {
 	window *popup.Window
 	// restart is told when new settings were saved. One pending message is enough, however many saves came.
 	restart chan struct{}
+	// stop ends the whole program, for the page's Stop button. It is nil until serve sets it.
+	stop context.CancelFunc
 
 	mu      sync.Mutex
 	loaded  config.Loaded
@@ -220,6 +222,13 @@ func (a *app) Save(ctx context.Context, f config.File) error {
 	return nil
 }
 
+// Quit stops the program.
+func (a *app) Quit() {
+	if a.stop != nil {
+		a.stop()
+	}
+}
+
 // Test posts a test message to the webhook in the box. The box shows the saved address, so an empty one has none, except
 // that an address from the environment is never in the box and is still the one in use.
 func (a *app) Test(ctx context.Context, webhook string) error {
@@ -251,6 +260,6 @@ func (a *app) TestPopup(ctx context.Context) error {
 }
 
 func summary(cfg config.Config) string {
-	return fmt.Sprintf("Watching %s · earthquake reports from intensity %s / 監視中：%s・震度%s以上",
+	return fmt.Sprintf("Watching %s from intensity %s / 監視中：%s・震度%s以上",
 		cfg.Location, cfg.MinIntensity.Japanese(), cfg.Location, cfg.MinIntensity.Japanese())
 }

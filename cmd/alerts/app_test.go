@@ -542,8 +542,12 @@ func TestASecondCopyOpensTheSettingsPageOfTheFirst(t *testing.T) {
 	}
 	select {
 	case opened := <-second.opened:
-		if opened != address {
-			t.Errorf("opened %q, want the first copy's own settings address %q", opened, address)
+		if opened != address+"&again=1" {
+			t.Errorf(
+				"opened %q, want the first copy's own settings address %q, marked as a second opening",
+				opened,
+				address,
+			)
 		}
 	default:
 		t.Error("the first copy's settings page should have been opened")
@@ -725,6 +729,33 @@ func TestASlowWebhookNeverDelaysTheWindow(t *testing.T) {
 	<-offered
 
 	stopped(t, cancel, done)
+}
+
+func TestStoppingFromThePageEndsTheProgramCleanly(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil, fakeSources(newWatcher(nil).src))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, body := page.post("/quit", url.Values{})
+
+	if status != http.StatusOK || !strings.Contains(body, "停止") {
+		t.Errorf("status %d, body %q, want a page that says the program has stopped", status, body)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Errorf("exit code = %d, want 0: stopping on purpose is not a failure", code)
+		}
+	case <-time.After(waitLimit):
+		t.Fatal("the program did not stop")
+	}
+	if _, err := os.Stat(config.AddressFilePath(h.env.getenv)); err == nil {
+		t.Error("the settings address must go with the program")
+	}
 }
 
 func TestSavingAPopupOnlySetupThroughThePage(t *testing.T) {

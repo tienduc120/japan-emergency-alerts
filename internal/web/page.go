@@ -49,6 +49,7 @@ type activityView struct {
 type pageData struct {
 	Nonce, Version  string
 	Saved           bool
+	Again           bool
 	Running         bool
 	Summary         string
 	Sources, Notes  []string
@@ -77,8 +78,14 @@ type choice struct {
 func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	snap := s.app.Snapshot()
 	chosen := fromSaved(snap.Saved, snap.PopupDefault)
-	s.render(w, http.StatusOK, snap, chosen, nil, r.URL.Query().Get("saved") == "1")
+	s.render(w, http.StatusOK, snap, chosen, nil, banner{
+		saved: r.URL.Query().Get("saved") == "1",
+		again: r.URL.Query().Get(againParam) == "1",
+	})
 }
+
+// banner is which of the notes at the top of the page apply to this visit.
+type banner struct{ saved, again bool }
 
 func (s *server) save(w http.ResponseWriter, r *http.Request) {
 	snap := s.app.Snapshot()
@@ -97,17 +104,18 @@ func (s *server) save(w http.ResponseWriter, r *http.Request) {
 		problems = s.app.Save(r.Context(), file)
 	}
 	if problems != nil {
-		s.render(w, http.StatusUnprocessableEntity, snap, chosen, problems, false)
+		s.render(w, http.StatusUnprocessableEntity, snap, chosen, problems, banner{})
 		return
 	}
 	http.Redirect(w, r, "/?saved=1", http.StatusSeeOther)
 }
 
-func (s *server) render(w http.ResponseWriter, code int, snap Snapshot, chosen choice, problems error, saved bool) {
+func (s *server) render(w http.ResponseWriter, code int, snap Snapshot, chosen choice, problems error, note banner) {
 	data := pageData{
 		Nonce:   nonce(),
 		Version: s.version,
-		Saved:   saved,
+		Saved:   note.saved,
+		Again:   note.again,
 		Running: snap.Running,
 		Summary: snap.Summary,
 		Sources: snap.Sources,
@@ -234,18 +242,14 @@ func optionsFor(selected string) []optionView {
 		selected = defaultIntensity
 	}
 	options := []optionView{
-		{Value: "1", English: "Intensity 1: slightly felt by some indoors", Japanese: "震度1 屋内の一部の人がわずかに感じる"},
-		{Value: "2", English: "Intensity 2: felt by many indoors", Japanese: "震度2 屋内の多くの人が感じる"},
-		{Value: "3", English: "Intensity 3: felt by most people indoors", Japanese: "震度3 屋内のほとんどの人が感じる"},
-		{Value: "4", English: "Intensity 4: most people are startled", Japanese: "震度4 ほとんどの人が驚く"},
-		{
-			Value:    "5-",
-			English:  "Intensity 5-lower (recommended): many people are frightened",
-			Japanese: "震度5弱（おすすめ）大半の人が恐怖を覚える",
-		},
-		{Value: "5+", English: "Intensity 5-upper: hard to walk without holding on", Japanese: "震度5強 物につかまらないと歩くのが難しい"},
-		{Value: "6-", English: "Intensity 6-lower: hard to stand", Japanese: "震度6弱 立っているのが困難"},
-		{Value: "6+", English: "Intensity 6-upper: cannot stand, only crawl", Japanese: "震度6強 立っていられず、はわないと動けない"},
+		{Value: "1", English: "Intensity 1", Japanese: "震度1"},
+		{Value: "2", English: "Intensity 2", Japanese: "震度2"},
+		{Value: "3", English: "Intensity 3", Japanese: "震度3"},
+		{Value: "4", English: "Intensity 4", Japanese: "震度4"},
+		{Value: "5-", English: "Intensity 5-lower (recommended)", Japanese: "震度5弱（おすすめ）"},
+		{Value: "5+", English: "Intensity 5-upper", Japanese: "震度5強"},
+		{Value: "6-", English: "Intensity 6-lower", Japanese: "震度6弱"},
+		{Value: "6+", English: "Intensity 6-upper", Japanese: "震度6強"},
 		{Value: "7", English: "Intensity 7 or over", Japanese: "震度7以上"},
 	}
 	for i := range options {

@@ -39,8 +39,11 @@ var errAlreadyRunning = errors.New("another copy of this program is already runn
 // serve is the default command: it serves the settings page and watches whenever the settings allow. The first time,
 // when there is no webhook yet, it opens the page in the browser.
 func serve(ctx context.Context, env environment) int {
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	logger := slog.New(slog.NewTextHandler(env.stdout, nil))
 	a := newApp(env, logger)
+	a.stop = stop
 
 	listener, err := env.listen(ctx)
 	if errors.Is(err, errAlreadyRunning) {
@@ -74,7 +77,10 @@ func serve(ctx context.Context, env environment) int {
 
 	fmt.Fprintf(env.stdout, "Japan Emergency Alerts %s\nSettings page: %s\n", version, pageURL)
 	if loaded := a.reload(); loaded.Problems != nil {
-		fmt.Fprintln(env.stdout, "Not set up yet. Opening the settings page in your browser. Leave this window open.")
+		fmt.Fprintln(
+			env.stdout,
+			"Not set up yet. Opening the settings page in your browser; nothing is watched until you press Save and start.",
+		)
 		if openErr := env.open(ctx, pageURL); openErr != nil {
 			fmt.Fprintf(
 				env.stdout,
@@ -85,7 +91,7 @@ func serve(ctx context.Context, env environment) int {
 	} else {
 		fmt.Fprintf(
 			env.stdout,
-			"Watching %s (earthquake reports from intensity %s). Leave this window open; close it to stop.\n",
+			"Watching %s (earthquake reports from intensity %s). Stop it with Stop running on the settings page.\n",
 			loaded.Config.Location,
 			loaded.Config.MinIntensity.Japanese(),
 		)
@@ -101,7 +107,8 @@ func serve(ctx context.Context, env environment) int {
 // showRunningCopy is what a second copy does instead of watching: it opens the first copy's settings page when it can
 // find the address, and otherwise says where to look. Two copies would each send every alert.
 func showRunningCopy(ctx context.Context, env environment) int {
-	if address, ok := runningCopyAddress(env); ok && env.open(ctx, address) == nil {
+	// The marker makes the page say the program was already running, and so where to stop it.
+	if address, ok := runningCopyAddress(env); ok && env.open(ctx, address+"&again=1") == nil {
 		fmt.Fprint(
 			env.stdout,
 			"Japan Emergency Alerts is already running on this computer. Its settings page is open in your browser.\n"+
