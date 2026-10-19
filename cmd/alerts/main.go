@@ -14,6 +14,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -114,6 +116,7 @@ func liveEnvironment(getenv func(string) string, stdout, stderr io.Writer) envir
 func main() { os.Exit(runMain()) }
 
 func runMain() int {
+	tuneMemory(os.Getenv, runtime.GOMAXPROCS, debug.SetGCPercent)
 	// Containers and service managers send SIGTERM, not an interrupt, before they kill a process.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
