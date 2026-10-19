@@ -12,7 +12,7 @@ Alerts that are not covered: J-Alert national alerts (such as missile warnings) 
 
 ## Quick start (no terminal needed)
 
-1. Download the file for your computer from the Releases page and unzip it: `alerts.exe` for Windows, `alerts` for macOS or Linux.
+1. Download the file for your computer from the Releases page. On Windows, take the file ending in `_windows_amd64.exe`: there is nothing to unzip. On macOS or Linux, take the zip for your system and unzip it to get `alerts`.
 2. Double-click it. Your browser opens a settings page. Nothing is watched until you press **Save and start**.
 3. On the page, choose where alerts go: paste a webhook address, switch on **Show a pop-up window on this computer**, or both. Press **Test** next to each to check.
 4. Tick the prefectures you are in. The page is in English and Japanese. Pick the weakest earthquake you want to hear about (the default, intensity 5-lower, is when many people are frightened).
@@ -217,7 +217,7 @@ go test -race -timeout 120s -count=1 ./...
 
 To build the program yourself: `go build -o alerts ./cmd/alerts` (add `.exe` on Windows). It needs no C compiler and runs on Windows, Linux and macOS. The released Windows file is built with `-ldflags "-H=windowsgui"` so it opens no console window; from a terminal it still prints, but the terminal does not wait for it, so run `.\alerts.exe test | Out-Host` in PowerShell to see the output in order.
 
-Releases are built by GitHub Actions when a tag such as `v0.1.0` is pushed: the tests run, the program is built for Windows (amd64), Linux (amd64, arm64) and macOS (arm64, amd64), and the zip files and a `SHA256SUMS` file are attached to a draft release, which the maintainer publishes by hand.
+Releases are built by GitHub Actions when a tag such as `v0.1.0` is pushed: the tests run, the program is built for Windows (amd64), Linux (amd64, arm64) and macOS (arm64, amd64), and the zip files, the Windows `.exe` on its own, and a `SHA256SUMS` file are attached to a draft release, which the maintainer publishes by hand.
 
 Read [AGENTS.md](AGENTS.md) for the working rules.
 
