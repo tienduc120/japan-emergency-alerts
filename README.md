@@ -2,7 +2,7 @@
 
 Travelers in Japan on a data-only SIM or eSIM do not receive the emergency alerts that reach residents by cell broadcast. This program listens to free sources and forwards the major alerts to a webhook, such as a Discord channel, to a pop-up window on the computer it runs on, or to both.
 
-Status: version 1.0.0, the first release. It relays earthquake early warnings, earthquake reports, tsunami warnings, special weather warnings and volcano alerts, catches up after being offline, and has a settings page for people who do not use a terminal. It has not yet relayed a live alert, because none has occurred since it was built; it has been checked against real recorded data and live connections. Download it from the Releases page (see the Quick start), or build it yourself (see [Development](#development)).
+Status: it relays earthquake early warnings, earthquake reports, tsunami warnings, special weather warnings and volcano alerts, catches up after being offline, and has a settings page for people who do not use a terminal. It has not yet relayed a live alert, because none has occurred since it was built; it has been checked against real recorded data and live connections. Download it from the Releases page (see the Quick start), or build it yourself (see [Development](#development)).
 
 ## Not an official service
 
