@@ -39,14 +39,16 @@ jobs:
             mkdir "dist/$name"
             GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$flags -X main.version=${GITHUB_REF_NAME}" \
               -o "dist/$name/$binary" ./cmd/alerts
+            # The Windows file is also offered on its own, so nobody has to unzip it.
+            if [ "$os" = windows ]; then cp "dist/$name/$binary" "dist/$name.exe"; fi
             cp README.md LICENSE NOTICE.md "dist/$name/"
             (cd dist && zip -qr "$name.zip" "$name")
             rm -r "dist/$name"
           done
-          (cd dist && sha256sum ./*.zip > SHA256SUMS)
+          (cd dist && sha256sum ./*.zip ./*.exe > SHA256SUMS)
 
       # A draft, so nothing reaches the public until the maintainer has looked at it.
       - name: Draft the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME" dist/*.zip dist/*.exe dist/SHA256SUMS
