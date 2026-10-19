@@ -2,7 +2,7 @@
 
 Travelers in Japan on a data-only SIM or eSIM do not receive the emergency alerts that reach residents by cell broadcast. This program listens to free sources and forwards the major alerts to a webhook, such as a Discord channel, to a pop-up window on the computer it runs on, or to both.
 
-Status: early development. It relays earthquake early warnings, earthquake reports, tsunami warnings, special weather warnings and volcano alerts, catches up after being offline, and has a settings page for people who do not use a terminal. It has not yet relayed a live alert, because none has occurred since it was built; it has been checked against real recorded data and live connections. No release has been published yet, so for now you build it yourself (see [Development](#development)).
+Status: version 1.0.0, the first release. It relays earthquake early warnings, earthquake reports, tsunami warnings, special weather warnings and volcano alerts, catches up after being offline, and has a settings page for people who do not use a terminal. It has not yet relayed a live alert, because none has occurred since it was built; it has been checked against real recorded data and live connections. Download it from the Releases page (see the Quick start), or build it yourself (see [Development](#development)).
 
 ## Not an official service
 
@@ -13,14 +13,14 @@ Alerts that are not covered: J-Alert national alerts (such as missile warnings) 
 ## Quick start (no terminal needed)
 
 1. Download the file for your computer from the Releases page and unzip it: `alerts.exe` for Windows, `alerts` for macOS or Linux.
-2. Double-click it. A window opens and stays open, and your browser opens a settings page. If it does not, copy the `Settings page:` address from the window into your browser.
-3. On the page, choose where alerts go: paste a webhook address, switch on **Show a pop-up window on this computer**, or both. Press **Send test message** or **Show a test pop-up** to check.
+2. Double-click it. Your browser opens a settings page. Nothing is watched until you press **Save and start**.
+3. On the page, choose where alerts go: paste a webhook address, switch on **Show a pop-up window on this computer**, or both. Press **Test** next to each to check.
 4. Tick the prefectures you are in. The page is in English and Japanese. Pick the weakest earthquake you want to hear about (the default, intensity 5-lower, is when many people are frightened).
-5. Press **Save and start**. Leave the window open: closing it stops the alerts. The next time, it starts watching at once and does not open the browser.
+5. Press **Save and start**. On Windows there is no window to keep open: the program runs in the background, and the next time it starts watching at once without opening the browser.
 
-Only one copy runs at a time. Starting it again does not start a second one: it opens the settings page of the copy that is running, which is also the way back to the page later. The webhook box shows the address you saved; change it to replace it, or clear it and save to remove it.
+To change settings or to stop it, open the program again. Only one copy runs at a time, so this does not start a second one: it opens the settings page of the copy that is running and says so. Press **Stop running** at the top of that page to stop it (the button is greyed out while nothing is being watched). On macOS and Linux the program runs in a terminal window; leave it open, or use the same button. The webhook box shows the address you saved; change it to replace it, or clear it and save to remove it.
 
-The page can be reached only from your own computer. Its address carries a secret key so that other web pages you visit cannot change your settings, so use the address the program printed. It changes each time the program starts. Settings are kept in `config.json` in `japan-emergency-alerts` inside your user configuration folder (`%AppData%` on Windows, `~/Library/Application Support` on macOS, `~/.config` on Linux). The page's "Recent activity" shows what the program did with each alert, including the ones it did not send and why.
+The page can be reached only from your own computer. Its address carries a secret key so that other web pages you visit cannot change your settings, so open the program again rather than typing the address. It changes each time the program starts. Settings are kept in `config.json` in `japan-emergency-alerts` inside your user configuration folder (`%AppData%` on Windows, `~/Library/Application Support` on macOS, `~/.config` on Linux). On Windows, `log.txt` in the same folder says what the program did and why it stopped, if anything goes wrong. The page's "Recent activity" shows what the program did with each alert, including the ones it did not send and why.
 
 The program is not code-signed, so the first time:
 
@@ -215,7 +215,7 @@ lefthook install                          # run the checks on every commit and p
 go test -race -timeout 120s -count=1 ./...
 ```
 
-To build the program yourself: `go build -o alerts ./cmd/alerts` (add `.exe` on Windows). It needs no C compiler and runs on Windows, Linux and macOS.
+To build the program yourself: `go build -o alerts ./cmd/alerts` (add `.exe` on Windows). It needs no C compiler and runs on Windows, Linux and macOS. The released Windows file is built with `-ldflags "-H=windowsgui"` so it opens no console window; from a terminal it still prints, but the terminal does not wait for it, so run `.\alerts.exe test | Out-Host` in PowerShell to see the output in order.
 
 Releases are built by GitHub Actions when a tag such as `v0.1.0` is pushed: the tests run, the program is built for Windows (amd64), Linux (amd64, arm64) and macOS (arm64, amd64), and the zip files and a `SHA256SUMS` file are attached to a draft release, which the maintainer publishes by hand.
 
