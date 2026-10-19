@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -115,17 +117,46 @@ func runMain() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	code := mainWith(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
-	if holdsWindowOpen(os.Args[1:], code) {
-		waitForEnterIfDoubleClicked(os.Stderr)
+	args := os.Args[1:]
+	console, terminal := attachTerminal()
+	stdout, stderr := io.Writer(os.Stdout), io.Writer(os.Stderr)
+	if console != nil {
+		stdout, stderr = console, console
+	}
+	var failure bytes.Buffer
+	// The pop-up helper is left alone: it must not take over, and so empty, the log of the program that started it.
+	if !terminal && !isPopupHelper(args) {
+		log := openLogFile(os.Getenv)
+		defer func() { _ = log.Close() }()
+		stdout = redactKeys(log)
+		stderr = io.MultiWriter(log, &failure)
+	}
+
+	code := mainWith(ctx, args, os.Getenv, stdout, stderr)
+	if holdsWindowOpen(args, code) {
+		if terminal {
+			waitForEnterIfDoubleClicked(stderr)
+		} else {
+			showFailure(failure.String())
+		}
 	}
 	return code
 }
 
+func isPopupHelper(args []string) bool { return len(args) == 1 && args[0] == popup.WindowCommand }
+
 // holdsWindowOpen says whether a person needs time to read the failure. The pop-up helper runs with nobody at its
 // console, and its failure is reported by the program that started it.
 func holdsWindowOpen(args []string, code int) bool {
-	return code != 0 && (len(args) != 1 || args[0] != popup.WindowCommand)
+	return code != 0 && !isPopupHelper(args)
+}
+
+// showFailure tells someone who started the program by double-clicking, with no terminal to print on, why it stopped.
+func showFailure(text string) {
+	if strings.TrimSpace(text) == "" {
+		text = "The program stopped because of an error. The file log.txt beside the settings may say why."
+	}
+	_ = popup.ShowNow(context.Background(), "Japan Emergency Alerts", text)
 }
 
 func mainWith(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
@@ -134,7 +165,7 @@ func mainWith(ctx context.Context, args []string, getenv func(string) string, st
 
 // execute runs one command of the program. Problems a person must fix go to stderr as plain sentences.
 func execute(ctx context.Context, args []string, env environment) int {
-	if len(args) == 1 && args[0] == popup.WindowCommand {
+	if isPopupHelper(args) {
 		// Not for people: the program starts itself this way to show one window of its own on Windows.
 		if err := popup.RunWindowCommand(os.Stdin); err != nil {
 			fmt.Fprintf(env.stderr, "pop-up window: %v\n", err)

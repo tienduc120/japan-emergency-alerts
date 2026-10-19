@@ -187,6 +187,20 @@ func TestTheSettingsAddressIsKeptBesideTheSettingsFile(t *testing.T) {
 	}
 }
 
+func TestTheLogIsKeptBesideTheSettingsFile(t *testing.T) {
+	t.Parallel()
+	chosen := env(map[string]string{"CONFIG_FILE": "/x/y.json"})
+
+	got := config.LogFilePath(chosen)
+
+	if filepath.Dir(got) != filepath.Dir(config.FilePath(chosen)) || filepath.Base(got) != "log.txt" {
+		t.Errorf("LogFilePath = %q, want log.txt in the settings file's folder", got)
+	}
+	if config.LogFilePath(env(nil)) != "" {
+		t.Error("with nowhere to keep settings there is nowhere to keep a log either")
+	}
+}
+
 func TestTheFilePathCanBeChosen(t *testing.T) {
 	t.Parallel()
 

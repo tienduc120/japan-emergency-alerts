@@ -14,7 +14,10 @@ import (
 	"github.com/tienduc120/japan-emergency-alerts/internal/fileutil"
 )
 
-const addressFileName = "settings-address.txt"
+const (
+	addressFileName = "settings-address.txt"
+	logFileName     = "log.txt"
+)
 
 // File is what the settings page saves. Each field is the same setting as an environment variable, written the same
 // way, so one set of checks serves both.
@@ -76,11 +79,21 @@ func Check(getenv func(string) string, f File) error {
 // AddressFilePath is where a running copy leaves the address of its settings page, with its key, so that a second copy
 // can open it for the person. It sits beside the settings file, in the same owner-only folder.
 func AddressFilePath(getenv func(string) string) string {
+	return besideSettings(getenv, addressFileName)
+}
+
+// LogFilePath is where a program with no terminal of its own, which is how it runs on Windows, writes what it would
+// have printed. It sits beside the settings file.
+func LogFilePath(getenv func(string) string) string {
+	return besideSettings(getenv, logFileName)
+}
+
+func besideSettings(getenv func(string) string, name string) string {
 	path := FilePath(getenv)
 	if path == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(path), addressFileName)
+	return filepath.Join(filepath.Dir(path), name)
 }
 
 // ParseWebhook checks one webhook address and returns it parsed, with the same single problem the settings give.
