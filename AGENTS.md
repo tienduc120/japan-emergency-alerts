@@ -43,6 +43,7 @@ Steps 1 to 7 of the build order are done: the module and gate, `internal/async`,
 - **Do not lengthen the ping.** Measured against the live service: pings every 10 seconds kept a connection for over nine minutes, while pings every 30 seconds were cut at 60 or 90 seconds. Re-measure before changing it.
 - **Failing to save history never stops the program.** Log it once and carry on.
 - **Real webhook URLs live in the environment**, never in the repository. `.env` is ignored.
+- **Every release carries the Windows `.exe` on its own**, named `japan-emergency-alerts_<tag>_windows_amd64.exe`, beside the zips and listed in `SHA256SUMS`. The users are travelers who download one file and double-click it. `release.yml` builds it; keep it when changing the workflow, and look for it in the draft release before it is published.
 - **Credit what you reference.** When a design, config, or code comes from a public source, add it to the README "Credits" in the same change. If any text or code is copied or adapted, keep the upstream license text and record it in `NOTICE.md`. Only MIT, BSD, and Apache-2.0 material comes in.
 - **Do not commit `.local/`.**
 - Conventional Commits: `type(scope): subject`, imperative, lowercase.
