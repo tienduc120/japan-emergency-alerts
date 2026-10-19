@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -34,6 +35,17 @@ func envWith(webhook string) func(string) string {
 			return webhook
 		}
 		return ""
+	}
+}
+
+func TestAPlainBuildStillSaysWhichVersionItIs(t *testing.T) {
+	t.Parallel()
+
+	if !regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(version) {
+		t.Errorf(
+			"version = %q, want a release number such as v1.0.0: the settings page shows it, and a build made without the release tag must not say dev",
+			version,
+		)
 	}
 }
 

@@ -32,8 +32,9 @@ import (
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
 )
 
-// version is set at release time with -ldflags "-X main.version=...".
-var version = "dev"
+// version is the latest release. The release workflow replaces it with the tag through -ldflags "-X main.version=...",
+// so a build made by hand, which has no tag to read, still says a real version and not "dev". Raise it when tagging.
+var version = "v1.0.0"
 
 // exitUsage is the conventional code for a command line that was wrong.
 const exitUsage = 2
