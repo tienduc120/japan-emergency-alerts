@@ -33,9 +33,11 @@ jobs:
             arch="${target#*/}"
             name="japan-emergency-alerts_${GITHUB_REF_NAME}_${os}_${arch}"
             binary=alerts
-            if [ "$os" = windows ]; then binary=alerts.exe; fi
+            flags="-s -w"
+            # No console window on Windows: double-clicking the file opens only the settings page.
+            if [ "$os" = windows ]; then binary=alerts.exe; flags="$flags -H=windowsgui"; fi
             mkdir "dist/$name"
-            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$flags -X main.version=${GITHUB_REF_NAME}" \
               -o "dist/$name/$binary" ./cmd/alerts
             cp README.md LICENSE NOTICE.md "dist/$name/"
             (cd dist && zip -qr "$name.zip" "$name")
