@@ -1,122 +1,139 @@
-# japan-emergency-alerts
+# Japan Emergency Alerts
 
-Travelers in Japan on a data-only SIM or eSIM do not receive the emergency alerts that reach residents by cell broadcast. This program listens to free sources and forwards the major alerts to a webhook, such as a Discord channel, to a pop-up window on the computer it runs on, or to both.
+Travelers in Japan on a data-only SIM or eSIM do not get the emergency alerts that reach residents by cell broadcast. This free program listens to Japan's public alert sources and forwards the major ones to a pop-up window on your computer, to your phone through Discord, or both.
 
-Status: it relays earthquake early warnings, earthquake reports, tsunami warnings, special weather warnings and volcano alerts, catches up after being offline, and has a settings page for people who do not use a terminal. It has not yet relayed a live alert, because none has occurred since it was built; it has been checked against real recorded data and live connections. Download it from the Releases page (see the Quick start), or build it yourself (see [Development](#development)).
+> **Not an official service.** It can be late, wrong or down, so never rely on it alone. It is not connected to the Japan Meteorological Agency (JMA) or any government body.
+>
+> - Alerts are JMA's own Japanese text under a short English heading. Use a translation app if you cannot read Japanese.
+> - National J-Alert alerts (such as missile warnings) and city evacuation orders have no free source, so they are not covered. The Japan Tourism Agency's "Safety tips" app covers the national ones.
+> - It has been checked against real recorded data and live connections, but has not yet relayed a live alert: none has occurred since it was built.
 
-## Not an official service
+## Quick start (Windows)
 
-This is an unofficial relay and never a replacement for the real alerts. It is not affiliated with the Japan Meteorological Agency (JMA) or any government body, and it can be late, wrong, or down. Alerts are in JMA's own Japanese wording; for earthquake reports, early warnings and tsunami warnings, JMA's fields are arranged into lines, never reworded or added to.
+Nothing to install, no terminal, no unzipping.
 
-Alerts that are not covered: J-Alert national alerts (such as missile warnings) and municipal evacuation orders have no free feed. The Japan Tourism Agency's "Safety tips" app covers the national alerts for visitors.
+1. **Download** the file ending `_windows_amd64.exe` from the [latest release](https://github.com/tienduc120/japan-emergency-alerts/releases/latest), under **Assets**. Ignore the zips. If your browser asks, choose **Keep**.
+2. **Double-click it.** If Windows says "Windows protected your PC" (the program is free and not code-signed), choose **More info**, then **Run anyway**.
+3. Your browser opens the settings page (English and Japanese). In part 1, choose where alerts go and press **Test**: tick **Show a pop-up window on this computer**, and/or paste a [Discord webhook](#discord-webhook-for-your-phone).
+4. In part 2, tick the prefecture you are in (a region of Japan, like a state). Not sure? Narita Airport and Tokyo Disney Resort are in Chiba. See [Choosing your location](#choosing-your-location).
+5. In part 3, pick the weakest earthquake you want to hear about. The default, **5-lower** (5弱), is strong shaking. Tsunami, volcano and weather warnings are always sent.
+6. Press **Save and start**. Nothing is watched until you do. Then close the tab: the program keeps running in the background.
 
-## Quick start (no terminal needed)
+## Mac and Linux
 
-1. Download the file for your computer from the Releases page. On Windows, take the file ending in `_windows_amd64.exe`: there is nothing to unzip. On macOS or Linux, take the zip for your system and unzip it to get `alerts`.
-2. Double-click it. Your browser opens a settings page. Nothing is watched until you press **Save and start**.
-3. On the page, choose where alerts go: paste a webhook address, switch on **Show a pop-up window on this computer**, or both. Press **Test** next to each to check.
-4. Tick the prefectures you are in. The page is in English and Japanese. Pick the weakest earthquake you want to hear about (the default, intensity 5-lower, is when many people are frightened).
-5. Press **Save and start**. On Windows there is no window to keep open: the program runs in the background, and the next time it starts watching at once without opening the browser.
+Download the zip for your system from the [latest release](https://github.com/tienduc120/japan-emergency-alerts/releases/latest), unzip it, run `alerts`, then follow steps 3 to 6. The zip name ends in `_darwin_arm64` (Apple silicon Mac), `_darwin_amd64` (Intel Mac), `_linux_amd64` or `_linux_arm64`.
 
-To change settings or to stop it, open the program again. Only one copy runs at a time, so this does not start a second one: it opens the settings page of the copy that is running and says so. Press **Stop running** at the top of that page to stop it (the button is greyed out while nothing is being watched). On macOS and Linux the program runs in a terminal window; leave it open, or use the same button. The webhook box shows the address you saved; change it to replace it, or clear it and save to remove it.
+- **macOS** may refuse an unidentified developer: right-click the file, choose **Open**. If still blocked, run `xattr -d com.apple.quarantine alerts`.
+- **Linux**: run `chmod +x alerts` once. Pop-ups need `notify-send` or `zenity`; without either, only the webhook works.
+- It runs in a terminal window: leave it open, or press **Stop running** on the settings page.
 
-The page can be reached only from your own computer. Its address carries a secret key so that other web pages you visit cannot change your settings, so open the program again rather than typing the address. It changes each time the program starts. Settings are kept in `config.json` in `japan-emergency-alerts` inside your user configuration folder (`%AppData%` on Windows, `~/Library/Application Support` on macOS, `~/.config` on Linux). On Windows, `log.txt` in the same folder says what the program did and why it stopped, if anything goes wrong. The page's "Recent activity" shows what the program did with each alert, including the ones it did not send and why.
+## Discord webhook for your phone
 
-The program is not code-signed, so the first time:
+A pop-up only works while your computer is on and awake; a webhook also reaches your phone. A webhook is an address that lets the program post in one Discord channel.
 
-- **Windows** may show "Windows protected your PC". Choose **More info**, then **Run anyway**.
-- **macOS** may refuse an unidentified developer. Right-click the file, choose **Open**, and confirm. If it is still blocked, run `xattr -d com.apple.quarantine alerts` in a terminal.
-- **Linux**: run `chmod +x alerts` once.
+1. Install Discord on your phone and allow notifications.
+2. In a server you manage (or a new private one): channel settings, **Integrations**, **Webhooks**, **New Webhook**, **Copy Webhook URL**.
+3. Paste it into the settings page and press **Test**.
 
-### Pop-up windows
+Keep the address secret: anyone with it can post in your channel.
 
-With the pop-up on, each alert also opens a window on top of your other windows, with JMA's text, until you close it. It works beside the webhook, so a webhook that is down never costs you the pop-up, and the other way round; an alert counts as sent if either worked. At most three windows are open at once, and a few more wait their turn. The program has to be running, and your computer awake, for a window to appear. A webhook reaches your phone as well, which is why it is worth using even if you also use pop-ups.
+## Day to day
 
-- **Windows**: a warning window from the system, shown by a small helper (the program starts itself with a hidden `popup-window` command), so quitting the program is never held up by an open window.
+- **It does not start by itself after a restart.** Double-click the file again. It then watches silently, so it can look as if nothing happened.
+- **To check it, change a setting or stop it, double-click the file again.** It never starts a second copy: it opens the settings page of the running one, where **Stop running** stops it.
+- **A sleeping computer cannot warn you.** When it wakes, the program sends what JMA published in the meantime (up to 12 hours), marked "sent late". Early warnings are never caught up.
+- **Open the page by double-clicking, not by typing its address.** The address holds a secret key that changes each start, and works only on your computer.
+- **To replace the webhook, paste a new one. To remove it, clear the box and save.**
+- Settings are in `config.json`, in the `japan-emergency-alerts` folder under `%AppData%` (Windows), `~/Library/Application Support` (macOS) or `~/.config` (Linux). It holds the webhook, so keep it private. On Windows, `log.txt` is beside it.
+
+## What you get
+
+| Alert | Sent when |
+| --- | --- |
+| Earthquake early warning (緊急地震速報) | Your prefecture is warned, as soon as it is issued. Once per event: updates are not repeated, and a cancellation is sent only if the warning was. Only this one can arrive before the shaking |
+| Earthquake report (震度速報, 震源・震度に関する情報) | One to two minutes after the shaking, if your prefecture reached the strength you chose |
+| Tsunami warning, major tsunami warning (not advisories) | Always, for everyone. JMA's zones are coastal strips, not prefectures, and a miss costs far more than an extra |
+| Special weather warning (気象特別警報) | Your prefecture |
+| Volcano eruption flash report, eruption warning for residential areas | The prefectures of the towns JMA names |
+
+JMA's text is passed on unchanged, never reworded or added to. Drills and tests that JMA or the early-warning service mark as such are never relayed.
+
+## If something goes wrong
+
+| Problem | What to do |
+| --- | --- |
+| Nothing happened when I double-clicked | If settings are saved, it is already watching silently. Double-click again to open its settings page |
+| The test message was refused | The webhook address is wrong or cut short. Copy it again; it starts `https://discord.com/api/webhooks/` |
+| No pop-up | Check the box is ticked and saved. The program must be running and the computer awake |
+| What did it do with an alert? | **Recent activity**, at the bottom of the settings page, lists each alert, whether it was sent, and why not |
+| It would not start or stopped | On Windows a message box says why. See also `log.txt`: press Windows key + R, type `%AppData%\japan-emergency-alerts`, press Enter |
+
+---
+
+Below is reference for people who want to know how it works or to skip the settings page.
+
+## How current is it?
+
+**Early warnings** come from [P2P Quake](https://www.p2pquake.net/) (P2P地震情報), a community service that republishes JMA's warnings. It is free and fast, but says its delivery is not guaranteed, its servers are not redundant, and nothing is re-sent after an outage. The program keeps one connection open (the service allows two per address, so run one copy), pings it every 10 seconds, and reconnects within seconds. After each connect it reads the last two minutes of warnings, so a short drop costs nothing; a longer outage does.
+
+**Everything else** comes from JMA's free, best-effort feeds, read once a minute within JMA's access rules: it asks only for what changed and never downloads a file twice. JMA says delivery may be delayed or stop during maintenance.
+
+## After a restart, a sleep or an outage
+
+The program keeps `state.json`: when it last read JMA's feeds in full, and which alerts it has sent.
+
+- Nothing is sent twice across a restart.
+- At start, and whenever the feeds went unread for over five minutes, it relays what JMA published since, up to 12 hours back. These are marked "sent late", as is any alert reaching you over ten minutes after JMA issued it.
+- The very first run sends nothing from the past.
+- If the file cannot be read or written, the program says so in its log and keeps running without that memory.
+
+## Pop-ups
+
+Each alert opens a window on top of your other windows, with JMA's text, until you close it. At most three are open at once; more wait their turn. Pop-up and webhook work independently, and an alert counts as sent if either worked.
+
+- **Windows**: a system warning window, shown by a small helper (the program starts itself with a hidden `popup-window` command), so quitting is never held up by an open window.
 - **macOS**: a critical alert dialog.
-- **Linux**: `notify-send` or `zenity` must be installed. Without either, no window can be shown: the log says so, and the webhook, if you have one, still works.
-
-## What it covers
-
-The major alerts a resident's phone shows. The early warning is pushed to the program the moment it is issued; the rest come from JMA's free public feeds, checked once a minute:
-
-| Alert | What is sent | Matched to your location by |
-| --- | --- | --- |
-| Earthquake early warning (緊急地震速報, warnings only) | The epicentre, magnitude, depth, and the forecast intensity for each warned region. Sent once per event, as soon as your prefecture is warned; a later update is not repeated, and a cancellation is sent only if the warning was | The prefectures of the warned regions |
-| Earthquake report (震度速報 and 震源・震度に関する情報) | Epicentre, magnitude, the shaking in each prefecture, and JMA's tsunami note. Only if the shaking in your prefecture reaches `MIN_INTENSITY` | The prefectures JMA lists, each with its own intensity |
-| Tsunami warning and major tsunami warning (not advisories) | JMA's headline and the warned coastal zones | Everyone. JMA's zones are coastal strips, not prefectures, so every location gets it; it is rare, and a miss costs far more than an extra |
-| Special weather warning (気象特別警報) | JMA's own summary, unchanged | The prefecture of the warning |
-| Volcano eruption flash report, and eruption warnings for residential areas | JMA's headline and activity text | The prefectures of the towns JMA names |
-
-An earthquake report arrives one to two minutes after the shaking, so it tells you what happened. Only the early warning can come before it.
-
-Drills and test messages that JMA or the early-warning service mark as such are never relayed.
-
-### How current is it?
-
-**Early warnings** come from [P2P Quake](https://www.p2pquake.net/) (P2P地震情報), a community service that receives JMA's warnings from a licensed distributor and republishes them. It is free, allows commercial use, and is fast, but it says plainly that its content and delivery are not guaranteed, that its servers are not redundant, that nothing is re-sent after an outage, and that it is not recommended as an early-warning service. This program keeps one connection open, pings it every 10 seconds (the service's network edge cut quieter connections within a minute or two), and reconnects within seconds when it drops. After every connect it also reads the service's list of its latest warnings once and relays any issued in the last two minutes, so a short drop does not cost you a warning. A longer outage still does. It is an extra layer, never a substitute for the alerts a Japanese phone receives. The service allows two connections per network address, so run one copy of the program.
-
-**Everything else** comes from JMA's feeds, which are free and best-effort. JMA says delivery may be delayed or stop during maintenance, and it points anyone who needs guaranteed, fast delivery to licensed providers. This program polls each minute and stays well inside JMA's access rules: it asks only for what changed, never downloads a file twice, and uses a small fraction of the daily limit.
-
-### After a restart, a sleep or an outage
-
-The program keeps a small file (`state.json`, see `STATE_FILE`) with two things: when it last read JMA's feeds in full, and which alerts it has already sent. So:
-
-- **Nothing is sent twice** across a restart.
-- **Nothing published while it was off is lost.** When it starts, and whenever the feeds have gone unread for more than five minutes (a laptop that slept, a network outage), it reads JMA's multi-day feeds and relays what was published since, up to 12 hours back. These are marked "sent late", as is any alert that reaches you more than ten minutes after JMA issued it, so they never pass for live ones.
-- **The very first run sends nothing from the past.**
-- **Early warnings are not caught up.** A warning that arrives late is worthless; the only recovery is the two-minute read after a reconnect described above.
-
-If the file cannot be read or written, the program says so in its log and keeps running without that memory.
-
-### Is it still running? (optional)
-
-It is off by default, so your alert channel stays quiet. If you want a sign of life, set the environment variable `HEARTBEAT_HOURS=24` and it posts a status message to the webhook once a day (never as a pop-up, and not at all without a webhook): since when it has been running, where it is watching, how many alerts it has sent, whether JMA's feeds are being read, and whether the early-warning connection is up. If the message stops arriving, the program or your computer has stopped; if it says a source is not working, that source is blind even though the program is alive.
-
-### See it work on real data
-
-```sh
-alerts check
-```
-
-reads what JMA published over the last few days and prints, for each alert, whether it would have been sent for your settings and why not if not. It posts nothing, so it is safe to run at any time.
+- **Linux**: `notify-send` or `zenity`.
 
 ## Configuration
 
-Most people only use the settings page. Everything it saves can also be set with environment variables, which win over the page: when one overrides a setting, the page says so. This suits servers, containers and scripts. A bad value is reported with every problem at once: the `test` and `check` commands refuse to run, and the program waits on the settings page for good ones.
+The settings page saves everything below. Environment variables win over the page, and the page says when one overrides a setting. A bad value is reported with every problem at once: `test` and `check` refuse to run, and the program waits on the settings page for good ones.
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
-| `WEBHOOK_URL` | Where alerts are posted: an `http` or `https` URL, such as a Discord webhook. Required unless `POPUP` is on. Keep it secret: anyone with it can post to your channel | none |
-| `POPUP` | `on` to show each alert in a window on this computer too (or instead of a webhook); `off` | the page's choice, else `off` |
-| `LOCATION` | The prefecture or prefectures you are in: names in English or Japanese, or numbers from 1 to 47, separated by commas (`Tokyo,Kanagawa`, `13,14`, `大阪府`), or `all` for the whole country. See [Choosing your location](#choosing-your-location) | `Tokyo` |
-| `MIN_INTENSITY` | Weakest earthquake report to send, on the JMA scale: `0` to `4`, `5-`, `5+`, `6-`, `6+`, `7` (`5弱`, `5強`, `6弱`, `6強` also work). Other alert types ignore it | `5-` |
-| `HEARTBEAT_HOURS` | Hours between status messages, from `1` to `168`; `0` means none | `0` (off) |
-| `CONFIG_FILE` | The settings file the page saves to. The webhook address is in it, so keep it private: it is written with owner-only permissions where the system supports them | `config.json` in `japan-emergency-alerts` inside your user configuration folder |
-| `STATE_FILE` | Where the program keeps what it must remember across a restart. The folder is created if needed | `state.json` in `japan-emergency-alerts` inside your user configuration folder (`%AppData%` on Windows, `~/.config` on Linux). With no such folder, no history is kept |
+| `WEBHOOK_URL` | An `http` or `https` URL, such as a Discord webhook. Required unless `POPUP` is on. Keep it secret | none |
+| `POPUP` | `on` to show each alert in a window on this computer | the page's choice, else `off` |
+| `LOCATION` | Prefecture names (English or Japanese) or numbers 1 to 47, comma-separated, or `all`. See [Choosing your location](#choosing-your-location) | `Tokyo` |
+| `MIN_INTENSITY` | Weakest earthquake report to send: `0` to `4`, `5-`, `5+`, `6-`, `6+`, `7` (`5弱`, `5強`, `6弱`, `6強` also work). Other alert types ignore it | `5-` |
+| `HEARTBEAT_HOURS` | Hours between status messages to the webhook, `1` to `168`; `0` is none | `0` |
+| `CONFIG_FILE` | The settings file. Written with owner-only permissions where the system supports them | `config.json` in the settings folder (see [Day to day](#day-to-day)) |
+| `STATE_FILE` | The history file. With no user configuration folder, no history is kept | `state.json` in the settings folder |
 
-The program writes a plain-text log to its window: when it started, each alert sent or held back, and the problems it met. The log never contains the webhook address.
+The log is plain text and never contains the webhook address.
+
+**Heartbeat** (off by default, so your channel stays quiet): with `HEARTBEAT_HOURS=24`, the program posts a status message to the webhook once a day, never as a pop-up. It says since when it has been running, where it is watching, how many alerts it has sent, whether JMA's feeds are being read, and whether the early-warning connection is up. If the message stops, the program or your computer has stopped.
 
 ## Checking that it works
 
-Before you rely on it, send a test. On the settings page use **Send test message** and **Show a test pop-up**, or from a terminal:
-
 ```sh
 alerts test        # or, from a clone of this repository: go run ./cmd/alerts test
+alerts check
 ```
 
-It tests each way you set up: one message that says it is not an alert for the webhook, and a window for the pop-up (close it to finish). It tells you if the webhook refused the message. Errors never show the webhook URL.
+`test` tests each way you set up: a message that says it is not an alert for the webhook, and a window for the pop-up (close it to finish). It tells you if the webhook refused the message. It is the same as the **Test** buttons.
+
+`check` reads what JMA published over the last few days and prints, for each alert, whether it would have been sent for your settings and why not. It posts nothing.
 
 How a message is delivered depends on the URL:
 
-- **Discord** (`discord.com` and `discordapp.com` URLs are recognized): a normal message. JMA's text is passed on unchanged under a short English heading with the issue time in JST, followed by the credit and a note that this is an unofficial relay. Long texts are split at line breaks to fit Discord's size limit, and mentions such as `@everyone` in the text never ping anyone.
-- **Any other URL**: one JSON object per alert with `id`, `kind`, `issued`, `areas` (prefecture numbers, with the intensity for earthquake reports), `text`, `source`, `notice`, and `message` (the same ready-to-read text Discord gets).
+- **Discord** (`discord.com` and `discordapp.com`): a normal message with a short English heading and the issue time in JST, JMA's text unchanged, the credit and a note that this is an unofficial relay. Long texts are split at line breaks, and mentions such as `@everyone` never ping anyone.
+- **Any other URL**: one JSON object per alert with `id`, `kind`, `issued`, `areas` (prefecture numbers, with the intensity for earthquake reports), `text`, `source`, `notice`, and `message` (the text Discord gets).
 
-If the receiver is busy or briefly down, sending is retried up to three times; a wrong URL is not retried.
+If the receiver is busy or briefly down, sending is retried up to three times; a wrong URL is not retried. Errors never show the webhook URL.
 
 ## Choosing your location
 
-Alerts are matched by prefecture (都道府県), not by distance. On the settings page, tick the prefectures where you are staying (or **Whole Japan**). With the `LOCATION` variable, give the prefecture, or a comma-separated list of them, as described below, and you get the major alerts for those prefectures.
+Alerts are matched by prefecture (都道府県), not by distance. There is no GPS or coordinate setting on purpose: a prefecture name is simpler, and close to how JMA labels its alerts.
 
 **1. Find your prefecture.** Most places are in the prefecture of the same name, but these catch people out:
 
@@ -136,23 +153,20 @@ Alerts are matched by prefecture (都道府県), not by distance. On the setting
 
 If your place is not here, search its name with "prefecture" (for example "Takayama prefecture" gives Gifu).
 
-**2. Set it.** Use the English name in any capitalization, the full Japanese name, or the number from the table below. Several places are separated by commas, and spaces do not matter:
+**2. Set it.** On the settings page, tick it in part 2 and press **Save and start**. With `LOCATION`, use the English name in any capitalization, the Japanese name, or the number from the table below, separated by commas (`Tokyo,Kanagawa`, `13,14`, `大阪府`); names and numbers can be mixed.
 
 ```sh
-export LOCATION=Osaka                 # macOS or Linux, one prefecture
-export LOCATION=Tokyo,Kanagawa        # a list
+export LOCATION=Tokyo,Kanagawa        # macOS or Linux
 ```
 
 ```powershell
-$env:LOCATION = "大阪府"               # Windows PowerShell, one prefecture
-$env:LOCATION = "13, 14"              # a list, by number
+$env:LOCATION = "大阪府"               # Windows PowerShell
 ```
 
-**3. Update it when you move.** Change `LOCATION` and restart the program when you change prefecture. Staying near a border (say in Kawasaki and visiting Tokyo), or touring several places? List them all, for example `Tokyo,Kanagawa,Kyoto`. `all` is the last resort: every major alert in Japan, which means more messages. A mistake in any entry stops the program at start and names the entry, so a place is never silently left unwatched.
+**3. Update it when you move.** Change the ticks on the page and save, or change `LOCATION` and restart. Staying near a border, or touring? List every place, such as `Tokyo,Kanagawa,Kyoto`. `all` is the last resort: every major alert in Japan, so more messages. A mistake in any entry is reported and names the entry, so a place is never silently left unwatched. The earthquake threshold is checked against the shaking in your listed prefectures, or the strongest anywhere with `all`.
 
-The earthquake threshold is checked against the shaking reported in your listed prefectures, or against the strongest shaking anywhere if you use `all`.
-
-**4. The numbers.** Names and numbers can be mixed (`Tokyo,14`). The number is the standard JIS prefecture code, and it saves you typing Japanese:
+<details>
+<summary>Prefecture numbers</summary>
 
 | No. | English | 日本語 |
 | --- | --- | --- |
@@ -204,7 +218,7 @@ The earthquake threshold is checked against the shaking reported in your listed 
 | 46 | Kagoshima | 鹿児島県 |
 | 47 | Okinawa | 沖縄県 |
 
-There is no GPS or coordinate setting on purpose: a prefecture name is simpler, and it is close to how JMA labels its alerts.
+</details>
 
 ## Development
 
@@ -215,9 +229,9 @@ lefthook install                          # run the checks on every commit and p
 go test -race -timeout 120s -count=1 ./...
 ```
 
-To build the program yourself: `go build -o alerts ./cmd/alerts` (add `.exe` on Windows). It needs no C compiler and runs on Windows, Linux and macOS. The released Windows file is built with `-ldflags "-H=windowsgui"` so it opens no console window; from a terminal it still prints, but the terminal does not wait for it, so run `.\alerts.exe test | Out-Host` in PowerShell to see the output in order.
+Build with `go build -o alerts ./cmd/alerts` (add `.exe` on Windows); no C compiler is needed. The released Windows file uses `-ldflags "-H=windowsgui"` so it opens no console window. From a terminal it still prints, but the terminal does not wait for it, so run `.\alerts.exe test | Out-Host` in PowerShell to see the output in order.
 
-Releases are built by GitHub Actions when a tag such as `v0.1.0` is pushed: the tests run, the program is built for Windows (amd64), Linux (amd64, arm64) and macOS (arm64, amd64), and the zip files, the Windows `.exe` on its own, and a `SHA256SUMS` file are attached to a draft release, which the maintainer publishes by hand.
+Pushing a tag such as `v0.1.0` makes GitHub Actions test, build for Windows, Linux and macOS, and attach the zips, the Windows `.exe` on its own and `SHA256SUMS` to a draft release, which the maintainer publishes by hand.
 
 Read [AGENTS.md](AGENTS.md) for the working rules.
 
