@@ -639,6 +639,19 @@ func TestAnAddressFileThatPointsElsewhereIsNeverOpened(t *testing.T) {
 	stopped(t, cancel, done)
 }
 
+func TestTheSummaryIsAnEnglishLineAndAJapaneseLine(t *testing.T) {
+	t.Parallel()
+	cfg := configFor(t, "https://discord.com/api/webhooks/1/x")
+	place, strength := cfg.Location.String(), cfg.MinIntensity.Japanese()
+
+	got := strings.Split(summary(cfg), "\n")
+
+	want := []string{"Watching " + place + " from intensity " + strength, "監視中：" + place + "・震度" + strength + "以上"}
+	if !slices.Equal(got, want) {
+		t.Errorf("summary lines %q, want %q: the page shows each language on its own line", got, want)
+	}
+}
+
 func TestEveryDecisionIsRecordedForTheActivityList(t *testing.T) {
 	t.Parallel()
 	sender := &fakeSender{failNext: 1}

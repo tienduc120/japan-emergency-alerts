@@ -723,20 +723,23 @@ func TestTheVersionIsShownBesideTheTitle(t *testing.T) {
 	}
 }
 
-func TestTheStartButtonSitsAtTheTopBesideStopAndSavesTheSettings(t *testing.T) {
+func TestSaveAndStartSitsAboveStopAtTheTop(t *testing.T) {
 	t.Parallel()
 
 	body := pageFor(t, web.Snapshot{}, "/")
 
 	stop, start := strings.Index(body, `id="stop"`), strings.Index(body, `id="start"`)
 	form := strings.Index(body, `action="/save"`)
-	if stop < 0 || start < stop || form < start {
+	if start < 0 || stop < start || form < stop {
 		t.Errorf(
-			"Stop at %d, Save and start at %d, the settings at %d, want Save and start right of Stop, both above the settings",
-			stop,
+			"Save and start at %d, Stop at %d, the settings at %d, want Save and start first, then Stop, both above the settings",
 			start,
+			stop,
 			form,
 		)
+	}
+	if !regexp.MustCompile(`\.actions\s*\{[^}]*flex-direction:\s*column`).MatchString(body) {
+		t.Error("on a wide window the two buttons stack, so the status beside them keeps most of the row")
 	}
 	tag := regexp.MustCompile(`(?s)<button[^>]*id="start"[^>]*>.*?</button>`).FindString(body)
 	if !strings.Contains(tag, `type="submit"`) || !strings.Contains(tag, `form="settings"`) ||
@@ -803,16 +806,35 @@ func TestWhileWatchingStartUnlocksOnceASettingIsChanged(t *testing.T) {
 	}
 }
 
-func TestTheAlreadyRunningNoteSharesTheRowWithTheButtons(t *testing.T) {
+func TestTheAlreadyRunningNoteIsAFullWidthLineUnderTheRow(t *testing.T) {
 	t.Parallel()
 
 	body := pageFor(t, running(), "/?again=1")
 
 	top := regexp.MustCompile(`(?s)<header class="top">.*?</header>`).FindString(body)
-	for _, want := range []string{"already running", `id="summary"`, `id="stop"`, `id="start"`} {
+	for _, want := range []string{`id="summary"`, `id="stop"`, `id="start"`} {
 		if !strings.Contains(top, want) {
 			t.Errorf("the top row lacks %q:\n%s", want, top)
 		}
+	}
+	// Squeezed beside the buttons it wrapped into a tall block; it is a one-time note, not part of the status.
+	_, under, found := strings.Cut(body, "</header>")
+	if strings.Contains(top, "already running") || !found || !strings.Contains(under, "already running") {
+		t.Error("the already-running note belongs on its own line just under the row, not inside it")
+	}
+}
+
+func TestTheSummaryKeepsItsTwoLines(t *testing.T) {
+	t.Parallel()
+
+	idle, watching := pageFor(t, web.Snapshot{}, "/"), pageFor(t, running(), "/")
+
+	if !regexp.MustCompile(`#summary\s*\{[^}]*white-space:\s*pre-line`).MatchString(watching) {
+		t.Error("the summary's English and Japanese lines must show as two lines")
+	}
+	if !strings.Contains(idle, "Not set up yet\nまだ設定されていません") ||
+		!strings.Contains(idle, `'Not set up yet\nまだ設定されていません'`) {
+		t.Error("the page and its live update must both say not set up yet on two lines")
 	}
 }
 

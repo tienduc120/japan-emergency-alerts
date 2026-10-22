@@ -285,6 +285,6 @@ func (a *app) TestPopup(ctx context.Context) error {
 }
 
 func summary(cfg config.Config) string {
-	return fmt.Sprintf("Watching %s from intensity %s / 監視中：%s・震度%s以上",
+	return fmt.Sprintf("Watching %s from intensity %s\n監視中：%s・震度%s以上",
 		cfg.Location, cfg.MinIntensity.Japanese(), cfg.Location, cfg.MinIntensity.Japanese())
 }
