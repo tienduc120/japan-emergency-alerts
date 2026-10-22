@@ -964,6 +964,9 @@ func TestEachFeedHasALightForWhetherItIsWorking(t *testing.T) {
 		!regexp.MustCompile(`\.down \.light\s*\{[^}]*var\(--accent\)`).MatchString(body) {
 		t.Error("the light must be green for a working feed and red for one that is not")
 	}
+	if regexp.MustCompile(`\.light\s*\{[^}]*(box-shadow|border:)`).MatchString(body) {
+		t.Error("the maintainer wants the lights as plain dots, with no ring around them")
+	}
 	if !strings.Contains(body, "li.className = source.state") {
 		t.Error("the live update must recolour the lights too")
 	}

@@ -44,8 +44,8 @@
   .sources li { display: flex; align-items: flex-start; gap: .5rem; }
   .light { flex: none; width: .6rem; height: .6rem; margin-top: .375rem; border-radius: 50%; background: var(--line); }
   /* Still when all is well: the page may stay open for days, and an endless animation repaints every frame. */
-  .up .light { background: var(--ok); box-shadow: 0 0 0 3px rgba(27, 127, 59, .18); }
-  .down .light { background: var(--accent); box-shadow: 0 0 0 3px rgba(179, 38, 30, .18); }
+  .up .light { background: var(--ok); }
+  .down .light { background: var(--accent); }
   .starting .light { background: var(--wait); animation: blink 1.2s ease-in-out infinite alternate; }
   @keyframes blink { from { opacity: 1; } to { opacity: .35; } }
   @media (prefers-reduced-motion: reduce) {
