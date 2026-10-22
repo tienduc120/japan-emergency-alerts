@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -60,20 +59,5 @@ func TestWithNowhereToKeepALogTheOutputIsDroppedNotFatal(t *testing.T) {
 	}
 	if err := out.Close(); err != nil {
 		t.Errorf("close = %v", err)
-	}
-}
-
-func TestTheKeyToTheSettingsPageNeverReachesTheLog(t *testing.T) {
-	t.Parallel()
-	var kept strings.Builder
-
-	_, err := redactKeys(
-		&kept,
-	).Write([]byte("Settings page: http://127.0.0.1:47600/?key=899da47968fb68258acdf53d01fadb97\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(kept.String(), "899da479") || !strings.Contains(kept.String(), "127.0.0.1:47600") {
-		t.Errorf("log %q, want the address without its key: a log is something people send to others", kept.String())
 	}
 }

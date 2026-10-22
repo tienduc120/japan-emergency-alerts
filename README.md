@@ -42,7 +42,7 @@ Keep the address secret: anyone with it can post in your channel.
 - **It does not start by itself after a restart.** Double-click the file again. It then watches silently, so it can look as if nothing happened.
 - **To check it, change a setting or stop it, double-click the file again.** It never starts a second copy: it opens the settings page of the running one, where **Stop running** stops it.
 - **A sleeping computer cannot warn you.** When it wakes, the program sends what JMA published in the meantime (up to 12 hours), marked "sent late". Early warnings are never caught up.
-- **Open the page by double-clicking, not by typing its address.** The address holds a secret key that changes each start, and works only on your computer.
+- **Open the settings page at [http://127.0.0.1:47600/](http://127.0.0.1:47600/)**, or by double-clicking the file. Bookmark it. It works only on your computer, but anyone using your computer can open it, so keep this program on a computer that is yours.
 - **While it is watching, only Stop running can be pressed.** Change any setting and **Save and start** can be pressed too, to watch with the new settings.
 - **To replace the webhook, paste a new one. To remove it, clear the box and save.**
 - Settings are in `config.json`, in the `japan-emergency-alerts` folder under `%AppData%` (Windows), `~/Library/Application Support` (macOS) or `~/.config` (Linux). It holds the webhook, so keep it private. On Windows, `log.txt` is beside it.

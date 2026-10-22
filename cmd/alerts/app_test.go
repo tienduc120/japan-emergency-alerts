@@ -70,9 +70,9 @@ func TestFirstRunOpensTheSettingsPageAndWatchesNothing(t *testing.T) {
 	}
 
 	out := h.stdout.String()
-	if !strings.Contains(opened, "?key=") || !strings.Contains(out, opened) {
+	if opened == "" || !strings.Contains(out, opened) {
 		t.Errorf(
-			"opened %q, stdout:\n%s\nwant the same address, with its key, printed for people whose browser did not open",
+			"opened %q, stdout:\n%s\nwant the same address printed for people whose browser did not open",
 			opened,
 			out,
 		)
@@ -572,7 +572,7 @@ func TestASecondCopyOpensTheSettingsPageOfTheFirst(t *testing.T) {
 	}
 	select {
 	case opened := <-second.opened:
-		if opened != address+"&again=1" {
+		if opened != address+"?again=1" {
 			t.Errorf(
 				"opened %q, want the first copy's own settings address %q, marked as a second opening",
 				opened,
@@ -593,16 +593,16 @@ func TestTheSettingsAddressIsForgottenWhenTheProgramStops(t *testing.T) {
 	h := newHarness(t, nil, fakeSources(newWatcher(nil).src))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := h.start(ctx)
-	h.address()
+	address := h.address()
 	kept := config.AddressFilePath(h.env.getenv)
-	if data, err := os.ReadFile(kept); err != nil || !strings.Contains(string(data), "?key=") {
-		t.Fatalf("address file %q (%v), want the settings address while running", data, err)
+	if data, err := os.ReadFile(kept); err != nil || strings.TrimSpace(string(data)) != address {
+		t.Fatalf("address file %q (%v), want the settings address %q while running", data, err, address)
 	}
 
 	stopped(t, cancel, done)
 
 	if _, err := os.Stat(kept); err == nil {
-		t.Error("the address holds the key to the settings page and must not outlive the program")
+		t.Error("the address must not outlive the program, or a second copy would open a page that is gone")
 	}
 }
 
@@ -617,7 +617,7 @@ func TestAnAddressFileThatPointsElsewhereIsNeverOpened(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		config.AddressFilePath(first.env.getenv),
-		[]byte("https://example.com/?key=x\n"),
+		[]byte("https://example.com/\n"),
 		0o600,
 	); err != nil {
 		t.Fatal(err)

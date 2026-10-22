@@ -33,7 +33,7 @@ func testEnvironment(getenv func(string) string, stdout, stderr io.Writer, sourc
 	}
 }
 
-var settingsAddress = regexp.MustCompile(`Settings page: (http://127\.0\.0\.1:\d+/\?key=[0-9a-f]+)`)
+var settingsAddress = regexp.MustCompile(`Settings page: (http://127\.0\.0\.1:\d+/)\s`)
 
 // harness runs the whole program in the background against a temporary settings file.
 type harness struct {
@@ -123,7 +123,7 @@ func newBrowser(t *testing.T, address string) *browser {
 	}
 }
 
-// signIn opens the address the program printed, which swaps its key for a cookie and lands on the page.
+// signIn opens the address the program printed, as a person does.
 func (b *browser) signIn(address string) (int, string) {
 	b.t.Helper()
 	u, err := url.Parse(address)
@@ -133,7 +133,7 @@ func (b *browser) signIn(address string) (int, string) {
 	return b.get(u.RequestURI())
 }
 
-// get follows the redirect from the key address to the page, as a browser does.
+// get follows one redirect, as a browser does.
 func (b *browser) get(path string) (int, string) {
 	b.t.Helper()
 	status, body := b.request(http.MethodGet, path, nil)

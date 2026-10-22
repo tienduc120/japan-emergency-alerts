@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,7 +26,6 @@ const (
 	headerTimeout    = 5 * time.Second
 	readTimeout      = 10 * time.Second
 	writeTimeout     = 30 * time.Second
-	keyBytes         = 16
 	// probeTimeout is long for a program on the same computer, so a copy that is merely busy is still recognized.
 	probeTimeout = 2 * time.Second
 )
@@ -53,13 +50,12 @@ func serve(ctx context.Context, env environment) int {
 		fmt.Fprintf(env.stderr, "could not start the settings page: %v\n", err)
 		return 1
 	}
-	key := randomKey()
 	address := listener.Addr().String()
 	_, port, _ := net.SplitHostPort(address)
-	pageURL := "http://" + address + "/?key=" + key
+	pageURL := "http://" + address + "/"
 	srv := &http.Server{
 		Handler: web.New(a, web.Options{
-			Key: key, Hosts: []string{address, net.JoinHostPort("localhost", port)}, Version: version,
+			Hosts: []string{address, net.JoinHostPort("localhost", port)}, Version: version,
 		}),
 		ReadHeaderTimeout: headerTimeout,
 		ReadTimeout:       readTimeout,
@@ -70,7 +66,7 @@ func serve(ctx context.Context, env environment) int {
 		if writeErr := fileutil.WriteAtomic(path, []byte(pageURL+"\n")); writeErr != nil {
 			logger.WarnContext(ctx, "the settings address could not be kept for a second copy", "error", writeErr)
 		} else {
-			// The address carries the key to the settings page, so it goes when the program does.
+			// A second copy trusts this file, so it must not point at a page that is gone.
 			defer func() { _ = os.Remove(path) }()
 		}
 	}
@@ -108,7 +104,7 @@ func serve(ctx context.Context, env environment) int {
 // find the address, and otherwise says where to look. Two copies would each send every alert.
 func showRunningCopy(ctx context.Context, env environment) int {
 	// The marker makes the page say the program was already running, and so where to stop it.
-	if address, ok := runningCopyAddress(env); ok && env.open(ctx, address+"&again=1") == nil {
+	if address, ok := runningCopyAddress(env); ok && env.open(ctx, address+"?again=1") == nil {
 		fmt.Fprint(
 			env.stdout,
 			"Japan Emergency Alerts is already running on this computer. Its settings page is open in your browser.\n"+
@@ -135,12 +131,11 @@ func runningCopyAddress(env environment) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	address := strings.TrimSpace(string(data))
-	u, err := url.Parse(address)
-	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Query().Get("key") == "" {
+	u, err := url.Parse(strings.TrimSpace(string(data)))
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" {
 		return "", false
 	}
-	return address, true
+	return "http://" + u.Host + "/", true
 }
 
 // serveHTTP runs the page's server until ctx ends, then lets requests in progress finish.
@@ -204,12 +199,4 @@ func isThisProgram(ctx context.Context, address string) bool {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	return resp.Header.Get("Server") == web.ServerName
-}
-
-func randomKey() string {
-	b := make([]byte, keyBytes)
-	if _, err := rand.Read(b); err != nil {
-		panic("no randomness available: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }

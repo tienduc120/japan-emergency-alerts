@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 )
@@ -31,19 +30,4 @@ func openLogFile(getenv func(string) string) io.WriteCloser {
 		return discardCloser{io.Discard}
 	}
 	return file
-}
-
-var keyInAddress = regexp.MustCompile(`key=[0-9a-f]+`)
-
-// redactKeys passes everything on except the key in the settings page's address: a log is something people send to
-// others, and the key opens the page.
-func redactKeys(w io.Writer) io.Writer { return keyRedactor{w} }
-
-type keyRedactor struct{ w io.Writer }
-
-func (r keyRedactor) Write(p []byte) (int, error) {
-	if _, err := r.w.Write(keyInAddress.ReplaceAll(p, []byte("key=…"))); err != nil {
-		return 0, err
-	}
-	return len(p), nil
 }

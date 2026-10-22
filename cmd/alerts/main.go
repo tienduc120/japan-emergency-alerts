@@ -137,7 +137,7 @@ func runMain() int {
 	if !terminal && !isPopupHelper(args) {
 		log := openLogFile(os.Getenv)
 		defer func() { _ = log.Close() }()
-		stdout = redactKeys(log)
+		stdout = log
 		stderr = io.MultiWriter(log, &failure)
 	}
 
