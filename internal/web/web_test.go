@@ -1263,7 +1263,7 @@ func TestTheIconIsServedAndNamedInThePage(t *testing.T) {
 	page := send(h, http.MethodGet, "/", nil, nil)
 
 	if icon.code != http.StatusOK || icon.header.Get("Content-Type") != "image/x-icon" {
-		t.Fatalf("icon: status %d, type %q, want 200 image/x-icon (a browser asks before it has the cookie)",
+		t.Fatalf("icon: status %d, type %q, want 200 image/x-icon",
 			icon.code, icon.header.Get("Content-Type"))
 	}
 	if !strings.HasPrefix(icon.body, "\x00\x00\x01\x00") {

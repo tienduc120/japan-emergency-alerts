@@ -147,7 +147,7 @@ func (h *harness) address() string {
 	}
 }
 
-// browser is a person at the settings page: it keeps the cookie and says where its requests come from.
+// browser is a person at the settings page: it says where its requests come from, as a browser does.
 type browser struct {
 	t      *testing.T
 	client *http.Client

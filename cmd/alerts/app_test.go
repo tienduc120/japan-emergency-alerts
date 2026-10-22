@@ -703,6 +703,43 @@ func TestSavingWithTheBoxEmptyTurnsTheEntryOff(t *testing.T) {
 	stopped(t, cancel, done)
 }
 
+func TestSavingWithoutChangingTheBoxLeavesTheEntryAlone(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		entry *fakeStartup
+		tick  bool
+	}{
+		"never ticked": {&fakeStartup{}, false},
+		"already on":   {&fakeStartup{on: true, exe: fakeExe}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := newWatcher(nil)
+			h := newHarness(t, nil, fakeSources(w.src))
+			h.onWindows(tc.entry)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := h.start(ctx)
+			page := newBrowser(t, h.address())
+			page.signIn(h.address())
+
+			status, _ := page.post("/save", popupOnlyForm(tc.tick))
+			w.waitForStart(t)
+
+			// A locked-down Run key must not stop people who never use the box from saving.
+			if enabled, disabled := tc.entry.calls(); status != http.StatusSeeOther || len(enabled) != 0 ||
+				disabled != 0 {
+				t.Errorf(
+					"status %d, enabled %v, disabled %d times, want the registry left alone",
+					status,
+					enabled,
+					disabled,
+				)
+			}
+			stopped(t, cancel, done)
+		})
+	}
+}
+
 func TestAnEntryThatCannotBeWrittenIsReportedAndNothingIsSaved(t *testing.T) {
 	t.Parallel()
 	entry := &fakeStartup{enableErr: errors.New("access denied")}

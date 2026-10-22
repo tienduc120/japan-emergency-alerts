@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -92,12 +93,18 @@ func serve(ctx context.Context, env environment, byWindows bool) int {
 			loaded.Config.MinIntensity.Japanese(),
 		)
 	}
+	tasks := []func(context.Context) error{a.supervise, serveHTTP(srv, listener), a.window.Run}
 	quiet := byWindows && env.startup != nil
 	if !quiet && (loaded.Problems != nil || env.startup != nil) {
-		openPage(ctx, env, pageURL)
+		// Opened alongside serving, not before: a browser slow to start would leave the port unanswered, and a second
+		// copy that cannot recognize this one would start watching too.
+		tasks = append(tasks, func(ctx context.Context) error {
+			openPage(ctx, env, pageURL)
+			return nil
+		})
 	}
 
-	if err = async.Run(ctx, a.supervise, serveHTTP(srv, listener), a.window.Run); err != nil {
+	if err = async.Run(ctx, tasks...); err != nil {
 		fmt.Fprintf(env.stderr, "stopped: %v\n", err)
 		return 1
 	}
@@ -126,12 +133,19 @@ func keepStartupEntry(ctx context.Context, env environment, logger *slog.Logger)
 	}
 	exe, err := env.executable()
 	// Windows paths ignore case.
-	if err != nil || strings.EqualFold(exe, named) {
+	if err != nil || strings.EqualFold(exe, named) || temporary(exe) {
 		return
 	}
 	if err = env.startup.Enable(exe); err != nil {
 		logger.WarnContext(ctx, "the start-with-Windows entry could not follow the program", "error", err)
 	}
+}
+
+// temporary says exe runs from the temporary folder, as with go run or an exe opened inside a zip, which is gone after a
+// restart.
+func temporary(exe string) bool {
+	tmp := filepath.Clean(os.TempDir()) + string(filepath.Separator)
+	return len(exe) > len(tmp) && strings.EqualFold(exe[:len(tmp)], tmp)
 }
 
 // showRunningCopy is what a second copy does instead of watching: it opens the first copy's settings page when it can

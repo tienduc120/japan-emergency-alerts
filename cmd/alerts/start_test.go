@@ -4,7 +4,9 @@ import (
 	"context"
 	"net"
 	"net/url"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,6 +82,66 @@ func TestASecondCopyStartedByWindowsLeavesQuietly(t *testing.T) {
 			code, len(second.opened))
 	}
 	stopped(t, cancel, done)
+}
+
+func TestASecondCopyIsRecognizedWhileTheFirstIsStillOpeningItsPage(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	defer close(release)
+	first := newHarness(t, configured(t), fakeSources(newWatcher(nil).src))
+	first.onWindows(&fakeStartup{})
+	// A browser that is slow to start at sign-in.
+	first.env.open = func(ctx context.Context, _ string) error {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := first.start(ctx)
+	usual := ""
+	if u, err := url.Parse(first.address()); err == nil {
+		usual = u.Host
+	}
+
+	second := newHarness(t, map[string]string{"CONFIG_FILE": first.configPath}, fakeSources(newWatcher(nil).src))
+	second.onWindows(&fakeStartup{})
+	second.env.listen = func(ctx context.Context) (net.Listener, error) { return listenPreferring(ctx, usual) }
+	give, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	code := execute(give, []string{startup.Marker}, second.env)
+
+	if code != 0 || strings.Contains(second.stdout.String(), "Settings page:") {
+		t.Errorf(
+			"exit %d, stdout:\n%s\nwant the second copy to find the first and leave: two copies send every alert twice",
+			code,
+			second.stdout.String(),
+		)
+	}
+	stopped(t, cancel, done)
+}
+
+func TestATemporaryCopyDoesNotTakeTheEntry(t *testing.T) {
+	t.Parallel()
+	entry := &fakeStartup{on: true, exe: fakeExe}
+	h := newHarness(t, configured(t), fakeSources(newWatcher(nil).src))
+	h.onWindows(entry)
+	// go run, or an exe opened from inside a zip, runs from a folder that is deleted afterwards.
+	exe := filepath.Join(t.TempDir(), "alerts.exe")
+	h.env.executable = func() (string, error) { return exe, nil }
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.startWith(ctx, []string{startup.Marker})
+	h.address()
+	stopped(t, cancel, done)
+
+	if enabled, _ := entry.calls(); len(enabled) != 0 {
+		t.Errorf(
+			"the entry was pointed at %v, want it left at %q: a temporary copy is gone after the next restart",
+			enabled,
+			fakeExe,
+		)
+	}
 }
 
 func TestAStartRepointsTheEntryToThisProgram(t *testing.T) {

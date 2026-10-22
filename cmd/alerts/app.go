@@ -261,12 +261,17 @@ func (a *app) applyStartup(on bool) error {
 	if a.env.startup == nil {
 		return nil
 	}
-	var err error
+	exe, err := a.env.executable()
+	if err != nil {
+		return fmt.Errorf("start with Windows could not be set: find this program: %w", err)
+	}
+	// Writing only on a change keeps a Run key that security software locks from refusing every save.
+	if now, named, stateErr := a.env.startup.State(); stateErr == nil && now == on &&
+		(!on || strings.EqualFold(named, exe)) {
+		return nil
+	}
 	if on {
-		var exe string
-		if exe, err = a.env.executable(); err == nil {
-			err = a.env.startup.Enable(exe)
-		}
+		err = a.env.startup.Enable(exe)
 	} else {
 		err = a.env.startup.Disable()
 	}

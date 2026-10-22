@@ -76,8 +76,8 @@ func Check(getenv func(string) string, f File) error {
 	return err
 }
 
-// AddressFilePath is where a running copy leaves the address of its settings page, with its key, so that a second copy
-// can open it for the person. It sits beside the settings file, in the same owner-only folder.
+// AddressFilePath is where a running copy leaves the address of its settings page, so that a second copy can open it
+// for the person, also when the usual port was taken and another was used. It sits beside the settings file, in the same owner-only folder.
 func AddressFilePath(getenv func(string) string) string {
 	return besideSettings(getenv, addressFileName)
 }
