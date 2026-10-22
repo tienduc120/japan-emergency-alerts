@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/jma"
 )
 
@@ -199,5 +200,59 @@ func TestStatusBeforeAnythingIsReadSaysSo(t *testing.T) {
 
 	if status := p.Status(); !strings.Contains(status, "not read yet") {
 		t.Errorf("Status = %q, want it to say nothing has been read yet", status)
+	}
+}
+
+func TestHealthIsUpWhileTheFeedsAreReadAndDownWhenTheyStop(t *testing.T) {
+	t.Parallel()
+	f := newFakeJMA(t)
+	clk := &fakeClock{now: origin()}
+	handle, _ := collect()
+	p := startWith(t, f, handle, withClock(clk, time.Time{}))
+	f.waitForPolls(t, 3)
+	if got := p.Horizon(); !got.Equal(origin()) {
+		t.Fatalf("Horizon = %v, want %v after a clean read", got, origin())
+	}
+	up := p.Health()
+
+	f.failFeeds(1 << 20)
+	clk.Advance(10 * time.Minute)
+	f.waitForPolls(t, f.hit("feed:eqvol.xml")+5)
+	down := p.Health()
+
+	if up != alert.Up || down != alert.Down {
+		t.Errorf("health %q after a clean read and %q after ten minutes of failures, want up, then down", up, down)
+	}
+}
+
+func TestHealthIsDownWhenTheFeedsWereNeverReached(t *testing.T) {
+	t.Parallel()
+	f := newFakeJMA(t)
+	f.failFeeds(1 << 20) // such as hotel Wi-Fi that wants a login first
+	clk := &fakeClock{now: origin()}
+	handle, _ := collect()
+	p := startWith(t, f, handle, withClock(clk, time.Time{}))
+	f.waitForPolls(t, 3)
+	early := p.Health()
+
+	clk.Advance(10 * time.Minute)
+	late, status := p.Health(), p.Status()
+
+	if early != alert.Starting || late != alert.Down {
+		t.Errorf("health %q at the start and %q ten minutes later, want starting, then down", early, late)
+	}
+	if !strings.Contains(status, "NOT read yet") || !strings.Contains(status, "21:00") {
+		t.Errorf("Status = %q, want it to say the feeds have not been read since the start at 21:00 JST", status)
+	}
+}
+
+func TestHealthBeforeAnythingIsReadIsNoAlarm(t *testing.T) {
+	t.Parallel()
+	f := newFakeJMA(t)
+
+	p := jma.NewPoller(jma.Config{FeedBase: f.feedBase(), DataBase: f.dataBase(), Clock: &fakeClock{now: origin()}})
+
+	if got := p.Health(); got != alert.Starting {
+		t.Errorf("Health = %q, want %q: the first read takes a moment", got, alert.Starting)
 	}
 }

@@ -231,17 +231,36 @@ func (s *Stream) setConnected(connected bool) {
 // Status is one line about the connection, for the heartbeat and the settings page. Setting up the first connection
 // takes a few seconds, so for the first half minute it says "connecting" instead of raising an alarm.
 func (s *Stream) Status() string {
+	health, changed := s.health()
+	switch {
+	case changed.IsZero():
+		return "Early-warning stream: not connected yet"
+	case health == alert.Up:
+		return "Early-warning stream: connected since " + inJST(changed)
+	case health == alert.Starting:
+		return "Early-warning stream: connecting…"
+	default:
+		return "Early-warning stream: NOT connected since " + inJST(changed)
+	}
+}
+
+// Health is the light beside Status on the settings page.
+func (s *Stream) Health() alert.Health {
+	health, _ := s.health()
+	return health
+}
+
+// health is read once for Status and Health, so the line and its light agree.
+func (s *Stream) health() (alert.Health, time.Time) {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
 	switch {
-	case s.changed.IsZero():
-		return "Early-warning stream: not connected yet"
 	case s.connected:
-		return "Early-warning stream: connected since " + inJST(s.changed)
-	case !s.everConnected && s.clock.Now().Sub(s.changed) < connectingGrace:
-		return "Early-warning stream: connecting…"
+		return alert.Up, s.changed
+	case s.changed.IsZero(), !s.everConnected && s.clock.Now().Sub(s.changed) < connectingGrace:
+		return alert.Starting, s.changed
 	default:
-		return "Early-warning stream: NOT connected since " + inJST(s.changed)
+		return alert.Down, s.changed
 	}
 }
 

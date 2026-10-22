@@ -522,6 +522,98 @@ func TestWhileConnectingForTheFirstTimeTheStatusDoesNotAlarm(t *testing.T) {
 	waitForStatus(t, stream, "NOT connected since")
 }
 
+func waitForHealth(t *testing.T, s *eew.Stream, want alert.Health) {
+	t.Helper()
+	deadline := time.After(waitLimit)
+	for s.Health() != want {
+		select {
+		case <-deadline:
+			t.Fatalf("health is %q, want %q", s.Health(), want)
+		case <-time.After(2 * time.Millisecond):
+		}
+	}
+}
+
+func TestHealthFollowsTheConnection(t *testing.T) {
+	t.Parallel()
+	drop := make(chan struct{})
+	var mu sync.Mutex
+	requests := 0
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		first := requests == 1
+		mu.Unlock()
+		if !first {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		<-drop
+	}))
+	t.Cleanup(srv.Close)
+	clk := &fakeClock{now: time.Date(2026, time.October, 18, 12, 0, 0, 0, time.UTC)}
+	handle, _ := collect()
+	stream := eew.NewStream(eew.Config{
+		URL: "ws" + strings.TrimPrefix(srv.URL, "http"), Handle: handle, Clock: clk,
+		MinBackoff: time.Millisecond, MaxBackoff: 5 * time.Millisecond,
+	})
+	if got := stream.Health(); got != alert.Starting {
+		t.Errorf("before Run: health %q, want %q", got, alert.Starting)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- stream.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	waitForHealth(t, stream, alert.Up)
+	close(drop)
+
+	waitForHealth(t, stream, alert.Down)
+}
+
+func TestWhileConnectingForTheFirstTimeTheHealthIsNoAlarm(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		<-release // the service is slow to answer
+		http.Error(w, "late", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	// Registered after the server, so it runs before the server is closed: Close waits for a handler that is waiting here.
+	t.Cleanup(func() { close(release) })
+	clk := &fakeClock{now: time.Date(2026, time.October, 18, 12, 0, 0, 0, time.UTC)}
+	handle, _ := collect()
+	stream := eew.NewStream(eew.Config{
+		URL: "ws" + strings.TrimPrefix(srv.URL, "http"), Handle: handle, Clock: clk,
+		MinBackoff: time.Millisecond, MaxBackoff: 5 * time.Millisecond,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- stream.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	waitForStatus(t, stream, "connecting")
+	starting := stream.Health()
+	clk.Advance(time.Minute)
+
+	waitForHealth(t, stream, alert.Down)
+	if starting != alert.Starting {
+		t.Errorf("health while first connecting = %q, want %q", starting, alert.Starting)
+	}
+}
+
 func TestTheStreamStopsAndClosesItsConnectionWhenTheContextEnds(t *testing.T) {
 	t.Parallel()
 	closed := make(chan struct{})
