@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -68,6 +69,56 @@ func newHarness(t *testing.T, settings map[string]string, sources sourceFactory)
 		return nil
 	}
 	return h
+}
+
+const fakeExe = `C:\apps\alerts.exe`
+
+// fakeStartup stands for the start-with-Windows entry, so no test touches the registry. Setting one on a harness also
+// makes the program behave as on Windows.
+type fakeStartup struct {
+	mu        sync.Mutex
+	on        bool
+	exe       string
+	enableErr error
+	enabled   []string
+	disabled  int
+}
+
+func (f *fakeStartup) State() (bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.on, f.exe, nil
+}
+
+func (f *fakeStartup) Enable(exe string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.enableErr != nil {
+		return f.enableErr
+	}
+	f.on, f.exe = true, exe
+	f.enabled = append(f.enabled, exe)
+	return nil
+}
+
+func (f *fakeStartup) Disable() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.on = false
+	f.disabled++
+	return nil
+}
+
+func (f *fakeStartup) calls() ([]string, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.enabled...), f.disabled
+}
+
+// onWindows gives the harness a start-with-Windows entry and a path for the program.
+func (h *harness) onWindows(entry *fakeStartup) {
+	h.env.startup = entry
+	h.env.executable = func() (string, error) { return fakeExe, nil }
 }
 
 // start runs the program until ctx ends and delivers its exit code.

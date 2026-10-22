@@ -39,6 +39,7 @@ type fakeSettings struct {
 	testErr     error
 	popupErr    error
 	saved       []config.File
+	startups    []bool
 	tested      []string
 	popupsShown int
 	quits       int
@@ -63,10 +64,11 @@ func (f *fakeSettings) Snapshot() web.Snapshot {
 	return f.snap
 }
 
-func (f *fakeSettings) Save(_ context.Context, file config.File) error {
+func (f *fakeSettings) Save(_ context.Context, file config.File, startWithWindows bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saved = append(f.saved, file)
+	f.startups = append(f.startups, startWithWindows)
 	return f.saveErr
 }
 
@@ -720,6 +722,76 @@ func TestTheVersionIsShownBesideTheTitle(t *testing.T) {
 
 	if !regexp.MustCompile(`(?s)<h1>.*?<span class="version">test</span>.*?</h1>`).MatchString(body) {
 		t.Error("the version belongs beside the title, where someone checking which build they run sees it at once")
+	}
+}
+
+func startupBox(body string) string {
+	return regexp.MustCompile(`<input type="checkbox" name="start_with_windows"[^>]*>`).FindString(body)
+}
+
+func TestTheStartWithWindowsBoxIsOfferedOnlyWhereItWorks(t *testing.T) {
+	t.Parallel()
+	offeredOff, offeredOn := running(), running()
+	offeredOff.StartupOffered = true
+	offeredOn.StartupOffered, offeredOn.StartupOn = true, true
+
+	elsewhere, off, on := pageFor(t, running(), "/"), pageFor(t, offeredOff, "/"), pageFor(t, offeredOn, "/")
+
+	if startupBox(elsewhere) != "" {
+		t.Error("macOS and Linux have no start-with-Windows entry, so the box must not be there")
+	}
+	if box := startupBox(
+		off,
+	); box == "" || strings.Contains(box, "checked") ||
+		!strings.Contains(off, "Windowsのサインイン時に起動") {
+		t.Errorf("box %q, want it offered, unticked by default, in both languages", box)
+	}
+	if !strings.Contains(startupBox(on), "checked") {
+		t.Error("the box must show the entry that is there")
+	}
+}
+
+func TestSavingPassesTheStartWithWindowsBox(t *testing.T) {
+	t.Parallel()
+	snap := web.Snapshot{StartupOffered: true}
+	app := &fakeSettings{snap: snap}
+	h := newHandler(app)
+	form := url.Values{"location": {"13"}, "min_intensity": {"5-"}, "popup": {"on"}}
+	ticked := url.Values{"location": {"13"}, "min_intensity": {"5-"}, "popup": {"on"}, "start_with_windows": {"on"}}
+
+	send(h, http.MethodPost, "/save", ticked, sameOrigin())
+	send(h, http.MethodPost, "/save", form, sameOrigin())
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if len(app.startups) != 2 || !app.startups[0] || app.startups[1] {
+		t.Errorf("saves passed %v, want ticked then not", app.startups)
+	}
+}
+
+func TestARefusedSaveKeepsTheBoxAsTyped(t *testing.T) {
+	t.Parallel()
+	app := &fakeSettings{
+		snap:    web.Snapshot{StartupOffered: true},
+		saveErr: errors.New("start with Windows: access denied"),
+	}
+	h := newHandler(app)
+
+	res := send(
+		h,
+		http.MethodPost,
+		"/save",
+		url.Values{
+			"location":           {"13"},
+			"min_intensity":      {"5-"},
+			"popup":              {"on"},
+			"start_with_windows": {"on"},
+		},
+		sameOrigin(),
+	)
+
+	if !strings.Contains(startupBox(res.body), "checked") || !strings.Contains(res.body, "access denied") {
+		t.Errorf("box %q, want it still ticked beside the reason the save was refused", startupBox(res.body))
 	}
 }
 

@@ -143,6 +143,12 @@
 {{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.English}} / {{.Japanese}}</option>
 {{end}}</select>
 <div class="hint">Tsunami, volcano and weather warnings are always sent. <span class="ja">津波・火山・特別警報は常に通知されます。</span></div>
+{{if .StartupOffered}}
+<h2>4. Start with Windows <span class="ja">自動起動</span></h2>
+<label><input type="checkbox" name="start_with_windows" value="on" id="start-with-windows"{{if .StartWithWindows}} checked{{end}}>
+   <strong>Start with Windows when I sign in <span class="ja">Windowsのサインイン時に起動</span></strong></label>
+<div class="hint">It then shows a short notification instead of opening this page. <span class="ja">起動時はこのページの代わりに短い通知を表示します。</span></div>
+{{end}}
 </form>
 
 <footer>

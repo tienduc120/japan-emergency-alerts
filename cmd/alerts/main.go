@@ -66,6 +66,13 @@ type statuser interface {
 	Status() string
 }
 
+// startupEntry is the start-with-Windows entry: whether Windows starts the program at sign-in, and which program.
+type startupEntry interface {
+	State() (bool, string, error)
+	Enable(exe string) error
+	Disable() error
+}
+
 // healther is a source that can also say whether it works, for the light beside its line on the settings page.
 type healther interface {
 	Health() alert.Health
@@ -101,20 +108,26 @@ type environment struct {
 	listen func(ctx context.Context) (net.Listener, error)
 	// popupShow shows one window; nil means the operating system's.
 	popupShow popup.ShowFunc
-	sources   sourceFactory
-	stdout    io.Writer
-	stderr    io.Writer
+	// startup is the start-with-Windows entry, nil where the system has none (all but Windows).
+	startup startupEntry
+	// executable is this program's path, which the start-with-Windows entry names.
+	executable func() (string, error)
+	sources    sourceFactory
+	stdout     io.Writer
+	stderr     io.Writer
 }
 
 func liveEnvironment(getenv func(string) string, stdout, stderr io.Writer) environment {
 	return environment{
-		getenv:   getenv,
-		readFile: os.ReadFile,
-		open:     openBrowser,
-		listen:   func(ctx context.Context) (net.Listener, error) { return listenPreferring(ctx, preferredAddress) },
-		sources:  liveSources,
-		stdout:   stdout,
-		stderr:   stderr,
+		getenv:     getenv,
+		readFile:   os.ReadFile,
+		open:       openBrowser,
+		listen:     func(ctx context.Context) (net.Listener, error) { return listenPreferring(ctx, preferredAddress) },
+		startup:    liveStartup(),
+		executable: os.Executable,
+		sources:    liveSources,
+		stdout:     stdout,
+		stderr:     stderr,
 	}
 }
 

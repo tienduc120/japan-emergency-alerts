@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -635,6 +637,90 @@ func TestAnAddressFileThatPointsElsewhereIsNeverOpened(t *testing.T) {
 			code,
 			len(second.opened),
 		)
+	}
+	stopped(t, cancel, done)
+}
+
+var startupBox = regexp.MustCompile(`<input type="checkbox" name="start_with_windows"[^>]*>`)
+
+func popupOnlyForm(startWithWindows bool) url.Values {
+	form := url.Values{"popup": {"on"}, "location": {"13"}, "min_intensity": {"5-"}}
+	if startWithWindows {
+		form.Set("start_with_windows", "on")
+	}
+	return form
+}
+
+func TestSavingWithTheBoxTickedTurnsTheEntryOn(t *testing.T) {
+	t.Parallel()
+	w, entry := newWatcher(nil), &fakeStartup{}
+	h := newHarness(t, nil, fakeSources(w.src))
+	h.onWindows(entry)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, _ := page.post("/save", popupOnlyForm(true))
+	w.waitForStart(t)
+	_, body := page.get("/")
+
+	enabled, disabled := entry.calls()
+	if status != http.StatusSeeOther || !slices.Equal(enabled, []string{fakeExe}) || disabled != 0 {
+		t.Errorf(
+			"status %d, enabled %v, disabled %d times, want the entry pointed at this program once",
+			status,
+			enabled,
+			disabled,
+		)
+	}
+	if !strings.Contains(startupBox.FindString(body), "checked") {
+		t.Errorf("box %q, want it ticked after saving", startupBox.FindString(body))
+	}
+	stopped(t, cancel, done)
+}
+
+func TestSavingWithTheBoxEmptyTurnsTheEntryOff(t *testing.T) {
+	t.Parallel()
+	w, entry := newWatcher(nil), &fakeStartup{on: true, exe: fakeExe}
+	h := newHarness(t, nil, fakeSources(w.src))
+	h.onWindows(entry)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, _ := page.post("/save", popupOnlyForm(false))
+	w.waitForStart(t)
+	_, body := page.get("/")
+
+	if _, disabled := entry.calls(); status != http.StatusSeeOther || disabled != 1 {
+		t.Errorf("status %d, disabled %d times, want the entry removed once", status, disabled)
+	}
+	if box := startupBox.FindString(body); box == "" || strings.Contains(box, "checked") {
+		t.Errorf("box %q, want it offered and unticked", box)
+	}
+	stopped(t, cancel, done)
+}
+
+func TestAnEntryThatCannotBeWrittenIsReportedAndNothingIsSaved(t *testing.T) {
+	t.Parallel()
+	entry := &fakeStartup{enableErr: errors.New("access denied")}
+	h := newHarness(t, nil, fakeSources(newWatcher(nil).src))
+	h.onWindows(entry)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, body := page.post("/save", popupOnlyForm(true))
+
+	if status != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "start with Windows could not be set: access denied") {
+		t.Errorf("status %d, want the page back saying that starting with Windows could not be set:\n%s", status, body)
+	}
+	if _, err := os.Stat(h.configPath); err == nil {
+		t.Error("nothing may be kept unless every setting passes, the start-with-Windows box included")
 	}
 	stopped(t, cancel, done)
 }

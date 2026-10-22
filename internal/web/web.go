@@ -61,8 +61,11 @@ type Snapshot struct {
 	// PopupDefault says whether the pop-up box starts ticked when nothing has been saved yet, which suits a computer
 	// with a screen in front of someone, and not a server.
 	PopupDefault bool
-	Running      bool
-	Summary      string
+	// StartupOffered says the system can start the program at sign-in (Windows); StartupOn, that it will.
+	StartupOffered bool
+	StartupOn      bool
+	Running        bool
+	Summary        string
 	// Sources are one line each about the health of the feeds.
 	Sources []Source
 	// Recent is newest first.
@@ -74,7 +77,7 @@ type Settings interface {
 	Snapshot() Snapshot
 	// Save checks and keeps the settings and starts watching with them. Problems with a setting come back as
 	// config.FieldError values, joined.
-	Save(ctx context.Context, f config.File) error
+	Save(ctx context.Context, f config.File, startWithWindows bool) error
 	// Test sends a test message to the webhook. An empty webhook means the saved one.
 	Test(ctx context.Context, webhook string) error
 	// TestPopup shows a test pop-up window on this computer.

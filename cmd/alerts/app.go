@@ -177,6 +177,11 @@ func (a *app) Snapshot() web.Snapshot {
 		snap.Summary = summary(a.cfg)
 		snap.Sources = sourceLines(a.built)
 	}
+	if a.env.startup != nil {
+		snap.StartupOffered = true
+		// An entry that cannot be read shows as off; saving with the box ticked writes it again.
+		snap.StartupOn, _, _ = a.env.startup.State()
+	}
 	return snap
 }
 
@@ -229,8 +234,11 @@ func (a *app) notes() []string {
 }
 
 // Save keeps the settings and starts watching with them. Nothing is kept unless every setting passes.
-func (a *app) Save(ctx context.Context, f config.File) error {
+func (a *app) Save(ctx context.Context, f config.File, startWithWindows bool) error {
 	if err := config.Check(a.env.getenv, f); err != nil {
+		return err
+	}
+	if err := a.applyStartup(startWithWindows); err != nil {
 		return err
 	}
 	a.mu.Lock()
@@ -244,6 +252,27 @@ func (a *app) Save(ctx context.Context, f config.File) error {
 	default:
 	}
 	a.logger.InfoContext(ctx, "settings saved", "file", path)
+	return nil
+}
+
+// applyStartup turns the start-with-Windows entry on or off. On Windows ticking it always rewrites it, which also
+// clears Task Manager's mark when someone had turned it off there.
+func (a *app) applyStartup(on bool) error {
+	if a.env.startup == nil {
+		return nil
+	}
+	var err error
+	if on {
+		var exe string
+		if exe, err = a.env.executable(); err == nil {
+			err = a.env.startup.Enable(exe)
+		}
+	} else {
+		err = a.env.startup.Disable()
+	}
+	if err != nil {
+		return fmt.Errorf("start with Windows could not be set: %w", err)
+	}
 	return nil
 }
 

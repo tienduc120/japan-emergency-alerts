@@ -49,14 +49,14 @@ func (r *Registry) State() (bool, string, error) {
 func (r *Registry) Enable(exe string) error {
 	value, err := syscall.UTF16FromString(Command(exe))
 	if err != nil {
-		return fmt.Errorf("start with Windows: %w", err)
+		return fmt.Errorf("write the start-up entry: %w", err)
 	}
 	data := unsafe.Slice((*byte)(unsafe.Pointer(&value[0])), len(value)*utf16Bytes)
 	if err = setValue(r.RunKey, r.Name, syscall.REG_SZ, data); err != nil {
-		return fmt.Errorf("start with Windows: %w", err)
+		return err
 	}
 	if err = deleteValue(r.ApprovedKey, r.Name); err != nil {
-		return fmt.Errorf("start with Windows: clear Task Manager's mark: %w", err)
+		return fmt.Errorf("clear Task Manager's mark: %w", err)
 	}
 	return nil
 }
@@ -64,10 +64,10 @@ func (r *Registry) Enable(exe string) error {
 // Disable removes the entry. One that is not there is not an error.
 func (r *Registry) Disable() error {
 	if err := deleteValue(r.RunKey, r.Name); err != nil {
-		return fmt.Errorf("stop starting with Windows: %w", err)
+		return err
 	}
 	if err := deleteValue(r.ApprovedKey, r.Name); err != nil {
-		return fmt.Errorf("stop starting with Windows: clear Task Manager's mark: %w", err)
+		return fmt.Errorf("clear Task Manager's mark: %w", err)
 	}
 	return nil
 }
