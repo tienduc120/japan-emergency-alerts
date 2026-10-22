@@ -9,12 +9,15 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 	"github.com/tienduc120/japan-emergency-alerts/internal/jma"
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
@@ -385,11 +388,38 @@ func TestRecentActivityShowsWhatWasSentAndWhatWasNot(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &reply); err != nil || len(reply.Recent) != 2 {
 		t.Fatalf("status %q (%v), want two recent items", body, err)
 	}
-	if reply.Recent[0].Result != "Not sent: outside the watched location" || reply.Recent[1].Result != "Sent" {
-		t.Errorf("recent = %+v, want newest first: not sent (Hokkaido), then sent (Tokyo)", reply.Recent)
+	if reply.Recent[0].Result != "Sent" || reply.Recent[1].Result != "Not sent: outside the watched location" {
+		t.Errorf(
+			"recent = %+v, want sent (Tokyo), then the newer one for elsewhere (Hokkaido) at the end",
+			reply.Recent,
+		)
 	}
 	if reply.Recent[0].Label != "Tsunami warning" {
 		t.Errorf("label = %q, want the kind of alert", reply.Recent[0].Label)
+	}
+	stopped(t, cancel, done)
+}
+
+func TestThePageShowsALightForEachSource(t *testing.T) {
+	t.Parallel()
+	rec := newRecorder(t, nil)
+	w := newWatcher(nil)
+	w.src.status, w.src.health = "Early-warning stream: NOT connected since 2026-10-18 22:00 JST", alert.Down
+	h := newHarness(t, map[string]string{"WEBHOOK_URL": rec.webhook()}, fakeSources(w.src))
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	w.waitForStart(t)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	_, body := page.get("/status.json")
+
+	var reply struct {
+		Sources []web.Source `json:"sources"`
+	}
+	want := []web.Source{{Text: w.src.status, State: alert.Down}}
+	if err := json.Unmarshal([]byte(body), &reply); err != nil || !slices.Equal(reply.Sources, want) {
+		t.Errorf("sources %+v (%v), want %+v", reply.Sources, err, want)
 	}
 	stopped(t, cancel, done)
 }
@@ -623,6 +653,50 @@ func TestEveryDecisionIsRecordedForTheActivityList(t *testing.T) {
 	want := []string{"Could not send: webhook down", "Sent", "Not sent: outside the watched location"}
 	if strings.Join(seen, "|") != strings.Join(want, "|") {
 		t.Errorf("recorded %v, want %v", seen, want)
+	}
+}
+
+func TestWhenTheActivityListIsFullOlderAlertsForElsewhereMakeRoomFirst(t *testing.T) {
+	t.Parallel()
+	var log activityLog
+	for i := range maxActivity + 1 {
+		log.add(web.Activity{Title: "mine " + strconv.Itoa(i)})
+	}
+	for i := range 5 {
+		log.add(web.Activity{Title: "elsewhere " + strconv.Itoa(i), Elsewhere: true})
+	}
+
+	var titles []string
+	for _, a := range log.list() {
+		titles = append(titles, a.Title)
+	}
+
+	want := []string{"elsewhere 4"}
+	for i := maxActivity; i >= 2; i-- {
+		want = append(want, "mine "+strconv.Itoa(i))
+	}
+	if !slices.Equal(titles, want) {
+		t.Errorf("list = %v\nwant %v\nthe newest is always kept, and an older alert for elsewhere makes room before "+
+			"any of mine", titles, want)
+	}
+}
+
+func TestOnlyAnAlertForAPlaceNotWatchedIsMarkedAsElsewhere(t *testing.T) {
+	t.Parallel()
+	var elsewhere []bool
+	r := newRelay(t, &fakeSender{}, &bytes.Buffer{})
+	r.activity = func(a web.Activity) { elsewhere = append(elsewhere, a.Elsewhere) }
+
+	_ = r.handle(t.Context(), tsunamiFor(1, "hokkaido"))
+	_ = r.handle(t.Context(), tsunamiFor(13, "tokyo"))
+	_ = r.handle(t.Context(), tsunamiFor(13, "tokyo"))
+
+	if want := []bool{true, false, false}; !slices.Equal(elsewhere, want) {
+		t.Errorf(
+			"elsewhere = %v, want %v: only the alert outside the watched location, not one sent or already sent",
+			elsewhere,
+			want,
+		)
 	}
 }
 

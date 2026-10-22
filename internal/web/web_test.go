@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
 )
@@ -146,7 +148,10 @@ func running() web.Snapshot {
 		Saved:   config.File{WebhookURL: webhook, Location: "Tokyo,Kanagawa", MinIntensity: "6-"},
 		Running: true,
 		Summary: "Watching Tokyo, Kanagawa (earthquake reports from 5弱)",
-		Sources: []string{"JMA feeds: OK, last read in full less than a minute ago", "Early-warning stream: connected"},
+		Sources: []web.Source{
+			{Text: "JMA feeds: OK, last read in full less than a minute ago", State: alert.Up},
+			{Text: "Early-warning stream: connected", State: alert.Up},
+		},
 	}
 }
 
@@ -572,9 +577,9 @@ func TestStatusIsAvailableAsJSONForTheLiveUpdate(t *testing.T) {
 	res := send(h, http.MethodGet, "/status.json", nil, cookie, nil)
 
 	var got struct {
-		Running bool     `json:"running"`
-		Summary string   `json:"summary"`
-		Sources []string `json:"sources"`
+		Running bool         `json:"running"`
+		Summary string       `json:"summary"`
+		Sources []web.Source `json:"sources"`
 		Recent  []struct {
 			When   string `json:"when"`
 			Label  string `json:"label"`
@@ -586,6 +591,9 @@ func TestStatusIsAvailableAsJSONForTheLiveUpdate(t *testing.T) {
 	}
 	if !got.Running || !strings.Contains(got.Summary, "Tokyo") || len(got.Sources) != 2 || len(got.Recent) != 1 {
 		t.Errorf("status = %+v, want the running summary, two sources and one recent item", got)
+	}
+	if !slices.Equal(got.Sources, snap.Sources) {
+		t.Errorf("sources = %+v, want %+v: each line with the state of its light", got.Sources, snap.Sources)
 	}
 	if got.Recent[0].When != "2026-10-18 12:00 JST" || !strings.Contains(got.Recent[0].Result, "outside") {
 		t.Errorf("recent = %+v, want the time in JST and the reason", got.Recent[0])
@@ -754,6 +762,256 @@ func TestTheStopButtonCannotBePressedWhileNothingIsRunning(t *testing.T) {
 	page := send(h, http.MethodGet, "/", nil, login(t, h), nil)
 	if !strings.Contains(page.body, "$('stop').disabled") {
 		t.Error("the live update must also enable and disable the button, or it would go stale after saving")
+	}
+}
+
+func pageFor(t *testing.T, snap web.Snapshot, path string) string {
+	t.Helper()
+	h := newHandler(&fakeSettings{snap: snap})
+	return send(h, http.MethodGet, path, nil, login(t, h), nil).body
+}
+
+func buttonTag(body, id string) string {
+	return regexp.MustCompile(`<button[^>]*id="` + id + `"[^>]*>`).FindString(body)
+}
+
+func TestTheVersionIsShownBesideTheTitle(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	if !regexp.MustCompile(`(?s)<h1>.*?<span class="version">test</span>.*?</h1>`).MatchString(body) {
+		t.Error("the version belongs beside the title, where someone checking which build they run sees it at once")
+	}
+}
+
+func TestTheStartButtonSitsAtTheTopBesideStopAndSavesTheSettings(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, web.Snapshot{}, "/")
+
+	stop, start := strings.Index(body, `id="stop"`), strings.Index(body, `id="start"`)
+	form := strings.Index(body, `action="/save"`)
+	if stop < 0 || start < stop || form < start {
+		t.Errorf(
+			"Stop at %d, Save and start at %d, the settings at %d, want Save and start right of Stop, both above the settings",
+			stop,
+			start,
+			form,
+		)
+	}
+	tag := regexp.MustCompile(`(?s)<button[^>]*id="start"[^>]*>.*?</button>`).FindString(body)
+	if !strings.Contains(tag, `type="submit"`) || !strings.Contains(tag, `form="settings"`) ||
+		!strings.Contains(tag, "保存して開始") {
+		t.Errorf(
+			"the start button is %q, want a bilingual button that submits the settings form it sits outside of",
+			tag,
+		)
+	}
+	if !regexp.MustCompile(`<form[^>]*action="/save"[^>]*id="settings"`).MatchString(body) {
+		t.Error(`the settings form needs id="settings", the form the start button names`)
+	}
+	if n := strings.Count(body, "Save and start"); n != 1 {
+		t.Errorf("%d Save and start buttons, want 1: the one at the bottom moved to the top", n)
+	}
+}
+
+func TestOnlyTheButtonThatFitsWhatIsHappeningCanBePressed(t *testing.T) {
+	t.Parallel()
+
+	idle, watching := pageFor(t, web.Snapshot{}, "/"), pageFor(t, running(), "/")
+
+	idleStart, idleStop := buttonTag(idle, "start"), buttonTag(idle, "stop")
+	if idleStart == "" || strings.Contains(idleStart, "disabled") || !strings.Contains(idleStop, " disabled") {
+		t.Errorf("with nothing running start is %q and stop %q, want only start enabled", idleStart, idleStop)
+	}
+	runStart, runStop := buttonTag(watching, "start"), buttonTag(watching, "stop")
+	if !strings.Contains(runStart, " disabled") || runStop == "" || strings.Contains(runStop, "disabled") {
+		t.Errorf("while watching start is %q and stop %q, want only stop enabled", runStart, runStop)
+	}
+	if !strings.Contains(watching, "$('start').disabled") {
+		t.Error("the live update must also enable and disable the start button, or it would go stale after saving")
+	}
+}
+
+func TestAFailedSaveWhileWatchingLeavesStartPressableToTryAgain(t *testing.T) {
+	t.Parallel()
+	app := &fakeSettings{snap: running(), saveErr: errors.New("write config.json: the file is in use")}
+	h := newHandler(app)
+	cookie := login(t, h)
+
+	res := send(h, http.MethodPost, "/save",
+		url.Values{"webhook": {webhook}, "location": {"13"}, "min_intensity": {"5-"}}, cookie, sameOrigin())
+
+	// A file held by another program is fixed by trying again with the same values, which a locked button would forbid.
+	tag := buttonTag(res.body, "start")
+	if res.code != http.StatusUnprocessableEntity || tag == "" || strings.Contains(tag, "disabled") {
+		t.Errorf("status %d, start button %q, want the refusal with the button enabled", res.code, tag)
+	}
+	if !strings.Contains(res.body, "document.querySelector('.errors') ? null : snapshot()") {
+		t.Error("the script must not lock the button again on its next refresh while the refusal is shown")
+	}
+}
+
+func TestWhileWatchingStartUnlocksOnceASettingIsChanged(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	// Stop ends the program, and opening it again watches at once, so a locked start button would lock the settings for good.
+	for _, want := range []string{"form.addEventListener('input', lock)", "form.addEventListener('change', lock)", "snapshot() === saved"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page script lacks %q: while watching, changing a setting must unlock Save and start", want)
+		}
+	}
+}
+
+func TestTheAlreadyRunningNoteSharesTheRowWithTheButtons(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/?again=1")
+
+	top := regexp.MustCompile(`(?s)<header class="top">.*?</header>`).FindString(body)
+	for _, want := range []string{"already running", `id="summary"`, `id="stop"`, `id="start"`} {
+		if !strings.Contains(top, want) {
+			t.Errorf("the top row lacks %q:\n%s", want, top)
+		}
+	}
+}
+
+func TestTheTwoButtonsShareTheRowOnAPhone(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	// Side by side and unwrapped, the two bilingual labels are wider than a 375-pixel phone.
+	if !regexp.MustCompile(`(?s)@media \(max-width: [^)]+\)\s*\{.*?\.actions button\s*\{[^}]*white-space:\s*normal`).
+		MatchString(body) {
+		t.Error(
+			"on a narrow screen the buttons must split the row and let their words wrap, or the page scrolls sideways",
+		)
+	}
+}
+
+func TestTheStartAndStopButtonsAnswerThePointerGently(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	for _, rule := range []string{`button\.primary`, `button\.stop`} {
+		if !regexp.MustCompile(rule + `\s*\{[^}]*transition:`).MatchString(body) {
+			t.Errorf("%s has no transition: a hover must ease in, not jump", rule)
+		}
+	}
+	if !regexp.MustCompile(`:not\(:disabled\):hover[^{]*\{[^}]*transform:`).MatchString(body) {
+		t.Error("a button that can be pressed should lift a little under the pointer, and a disabled one not at all")
+	}
+	if !regexp.MustCompile(`(?s)@media \(prefers-reduced-motion: reduce\)\s*\{.*?transform:\s*none`).MatchString(body) {
+		t.Error("people who ask their system for less motion must not get the lift")
+	}
+}
+
+func TestEachFeedHasALightForWhetherItIsWorking(t *testing.T) {
+	t.Parallel()
+	snap := running()
+	snap.Sources = []web.Source{
+		{Text: "JMA feeds: OK, last read in full less than a minute ago", State: alert.Up},
+		{Text: "Early-warning stream: NOT connected since 2026-10-18 22:00 JST", State: alert.Down},
+	}
+
+	body := pageFor(t, snap, "/")
+
+	for _, want := range []string{
+		`<li class="up"><span class="light" aria-hidden="true"></span>JMA feeds: OK`,
+		`<li class="down"><span class="light" aria-hidden="true"></span>Early-warning stream: NOT connected`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	if !regexp.MustCompile(`\.up \.light\s*\{[^}]*var\(--ok\)`).MatchString(body) ||
+		!regexp.MustCompile(`\.down \.light\s*\{[^}]*var\(--accent\)`).MatchString(body) {
+		t.Error("the light must be green for a working feed and red for one that is not")
+	}
+	if !strings.Contains(body, "li.className = source.state") {
+		t.Error("the live update must recolour the lights too")
+	}
+}
+
+func TestTheFeedsComeUnderTheButtonsAndRecentActivityBeforeTheSettings(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	start, feeds := strings.Index(body, `id="start"`), strings.Index(body, `id="sources"`)
+	recent, form := strings.Index(body, "Recent activity"), strings.Index(body, `action="/save"`)
+	if start < 0 || feeds < start || recent < feeds || form < recent {
+		t.Errorf("buttons at %d, feeds at %d, recent activity at %d, settings at %d, want them in that order",
+			start, feeds, recent, form)
+	}
+}
+
+func TestAlertsForPlacesNotWatchedAreListedLast(t *testing.T) {
+	t.Parallel()
+	at := func(hour int) time.Time { return time.Date(2026, time.October, 18, hour, 0, 0, 0, time.UTC) }
+	snap := running()
+	snap.Recent = []web.Activity{
+		{
+			When:      at(5),
+			Label:     "Earthquake report",
+			Title:     "Quake in Hokkaido",
+			Result:    "Not sent: outside the watched location",
+			Elsewhere: true,
+		},
+		{
+			When:   at(4),
+			Label:  "Earthquake report",
+			Title:  "Small one in Tokyo",
+			Result: "Not sent: below the intensity threshold",
+		},
+		{
+			When:      at(3),
+			Label:     "Earthquake report",
+			Title:     "Quake in Okinawa",
+			Result:    "Not sent: outside the watched location",
+			Elsewhere: true,
+		},
+		{When: at(2), Label: "Tsunami warning", Title: "Tsunami in Tokyo", Result: "Sent", Sent: true},
+	}
+	want := []string{"Small one in Tokyo", "Tsunami in Tokyo", "Quake in Hokkaido", "Quake in Okinawa"}
+
+	page, status := pageFor(t, snap, "/"), pageFor(t, snap, "/status.json")
+
+	shown := regexp.MustCompile(strings.Join(want, "|")).FindAllString(page, -1)
+	var reply struct {
+		Recent []struct {
+			Title string `json:"title"`
+		} `json:"recent"`
+	}
+	if err := json.Unmarshal([]byte(status), &reply); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, status)
+	}
+	var listed []string
+	for _, r := range reply.Recent {
+		listed = append(listed, r.Title)
+	}
+	if !slices.Equal(shown, want) || !slices.Equal(listed, want) {
+		t.Errorf(
+			"page %v, live update %v, want %v: newest first, with alerts for other places at the end",
+			shown,
+			listed,
+			want,
+		)
+	}
+}
+
+func TestAnOpenedActivityStaysOpenWhenThePageRefreshes(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	if !strings.Contains(body, "addEventListener('toggle'") || !strings.Contains(body, ".open = opened.has(") {
+		t.Error("the live update rebuilds the list every few seconds; it must remember which items were open")
 	}
 }
 

@@ -6,21 +6,57 @@
 <title>Japan Emergency Alerts / 日本の緊急情報アラート</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="any">
 <style>
-  :root { color-scheme: light; --accent: #b3261e; --ok: #1b7f3b; --muted: #666; --line: #d9d9d9; }
+  :root { color-scheme: light; --accent: #b3261e; --accent-dark: #93201a; --ok: #1b7f3b; --wait: #b58105; --muted: #666; --line: #d9d9d9; }
+  html { scroll-padding-top: 5rem; }
   body { background: #fff; color: #1a1a1a; font: 16px/1.5 system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; margin: 0; }
   main { max-width: 46rem; margin: 0 auto; padding: 1rem 1rem 3rem; }
   h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
   h2 { font-size: 1.05rem; margin: 1.5rem 0 .4rem; }
   small, .ja { color: var(--muted); font-weight: normal; }
-  .top { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: 0 0 1rem; }
-  .status { color: var(--muted); }
-  button.stop { border: 1px solid var(--accent); background: #fff; color: var(--accent); border-radius: .3rem; }
+  .version { display: inline-block; vertical-align: middle; margin-left: .2rem; padding: .05rem .45rem; border: 1px solid var(--line); border-radius: 1rem; color: var(--muted); font-size: .75rem; font-weight: normal; white-space: nowrap; }
+  .top { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem .75rem; margin: 0 -1rem; padding: .6rem 1rem; background: #fff; border-bottom: 1px solid var(--line); }
+  .status { flex: 1 1 14rem; min-width: 0; }
+  #summary { font-weight: 600; }
+  .again { margin-top: .2rem; color: var(--ok); font-size: .9rem; }
+  .again .ja { color: inherit; }
+  .actions { display: flex; flex: none; gap: .5rem; margin-left: auto; }
+  .actions form { margin: 0; }
+  .actions button { border-radius: .4rem; padding: .5rem 1.1rem; font-weight: 600; white-space: nowrap; }
+  button.stop { border: 1px solid var(--accent); background: #fff; color: var(--accent); transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease; }
   button.stop .ja { color: inherit; }
+  button.primary { border: 1px solid var(--accent); background: var(--accent); color: #fff; transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease; }
+  button.primary .ja { color: inherit; }
+  @media (hover: hover) {
+    button.primary:not(:disabled):hover, button.stop:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(179, 38, 30, .22); }
+    button.primary:not(:disabled):hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+    button.stop:not(:disabled):hover { background: rgba(179, 38, 30, .07); }
+    button.primary:not(:disabled):active, button.stop:not(:disabled):active { transform: translateY(0); box-shadow: 0 1px 3px rgba(179, 38, 30, .2); transition-duration: .06s; }
+  }
+  @media (max-width: 30rem) {
+    .actions { flex: 1 1 100%; }
+    .actions form, .actions > button { flex: 1 1 0; }
+    .actions button { width: 100%; height: 100%; white-space: normal; padding: .45rem .6rem; }
+  }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button:disabled { cursor: not-allowed; opacity: .45; }
+  .sources { display: flex; flex-wrap: wrap; gap: .3rem 1.5rem; margin: .7rem 0 0; font-size: .9rem; color: var(--muted); }
+  .sources:empty { display: none; }
+  .sources li { display: flex; align-items: flex-start; gap: .5rem; }
+  .light { flex: none; width: .6rem; height: .6rem; margin-top: .375rem; border-radius: 50%; background: var(--line); }
+  /* Still when all is well: the page may stay open for days, and an endless animation repaints every frame. */
+  .up .light { background: var(--ok); box-shadow: 0 0 0 3px rgba(27, 127, 59, .18); }
+  .down .light { background: var(--accent); box-shadow: 0 0 0 3px rgba(179, 38, 30, .18); }
+  .starting .light { background: var(--wait); animation: blink 1.2s ease-in-out infinite alternate; }
+  @keyframes blink { from { opacity: 1; } to { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    button.primary, button.stop { transition: none; }
+    button.primary:not(:disabled):hover, button.stop:not(:disabled):hover { transform: none; }
+    .starting .light { animation: none; }
+  }
   .box { border: 1px solid var(--line); border-radius: .5rem; padding: .6rem 1rem; margin: 1rem 0; }
   .errors { border-color: var(--accent); background: rgba(179, 38, 30, .08); }
   .errors li { color: var(--accent); }
-  .notes { border-color: #b58105; background: rgba(181, 129, 5, .1); }
+  .notes { border-color: var(--wait); background: rgba(181, 129, 5, .1); }
   .saved { border-color: var(--ok); background: rgba(27, 127, 59, .1); }
   input[type=text] { width: 100%; box-sizing: border-box; padding: .5rem; font: inherit; }
   select { padding: .4rem; font: inherit; max-width: 100%; }
@@ -33,37 +69,49 @@
   #popup { width: 1.5rem; height: 1.5rem; vertical-align: middle; margin-right: .35rem; }
   .result { font-size: .9rem; }
   #test-result.ok, #popup-result.ok { color: var(--ok); } #test-result.bad, #popup-result.bad { color: var(--accent); }
-  button.primary { background: var(--accent); color: #fff; border: 0; border-radius: .4rem; padding: .7rem 1.5rem; font-weight: 600; }
-  button.primary .ja { color: inherit; }
   .hint { color: var(--muted); font-size: .9rem; }
   .places .region { display: flex; gap: .75rem; padding: .35rem 0; border-top: 1px solid var(--line); }
   .places .region > b { flex: 0 0 9.5rem; font-weight: 600; }
   .places .names label { display: inline-block; margin: 0 .9rem .1rem 0; white-space: nowrap; }
   ul.plain { list-style: none; padding: 0; margin: .25rem 0; }
   .sent { color: var(--ok); } .notsent { color: var(--muted); }
+  #recent { max-height: 20rem; overflow-y: auto; border-bottom: 1px solid var(--line); }
   details { padding: .25rem 0; }
   details.help { margin: .25rem 0 .75rem; }
   details.item { border-top: 1px solid var(--line); }
   summary { cursor: pointer; }
   pre { white-space: pre-wrap; word-break: break-word; margin: .4rem 0 0; font: inherit; }
+  #settings { margin-top: 2rem; }
   footer { margin-top: 2.5rem; color: var(--muted); font-size: .85rem; }
 </style>
 </head>
 <body>
 <main>
-<h1>Japan Emergency Alerts <small class="ja">日本の緊急情報アラート</small></h1>
-<div class="top">
-<div class="status" id="summary">{{if .Running}}{{.Summary}}{{else}}Not set up yet <span class="ja">まだ設定されていません</span>{{end}}</div>
-<form method="post" action="/quit" id="quit"><button type="submit" class="small stop" id="stop"{{if not .Running}} disabled{{end}}>Stop running <span class="ja">停止</span></button></form>
+<h1>Japan Emergency Alerts <small class="ja">日本の緊急情報アラート</small> <span class="version">{{.Version}}</span></h1>
+<header class="top">
+<div class="status">
+<div id="summary">{{if .Running}}{{.Summary}}{{else}}Not set up yet <span class="ja">まだ設定されていません</span>{{end}}</div>
+{{if .Again}}<div class="again" role="status"><strong>The program is already running.</strong> To stop it, press Stop running. <span class="ja">すでに起動しています。停止するには「停止」を押してください。</span></div>{{end}}
 </div>
+<div class="actions">
+<form method="post" action="/quit" id="quit"><button type="submit" class="stop" id="stop"{{if not .Running}} disabled{{end}}>Stop running <span class="ja">停止</span></button></form>
+<button type="submit" form="settings" class="primary" id="start"{{if and .Running (not .ErrorList)}} disabled{{end}}>Save and start <span class="ja">保存して開始</span></button>
+</div>
+</header>
+<ul class="plain sources" id="sources">{{range .Sources}}<li class="{{.State}}"><span class="light" aria-hidden="true"></span>{{.Text}}</li>{{end}}</ul>
 
-{{if .Again}}<div class="box saved" role="status"><strong>The program is already running.</strong> To stop it, press Stop running. <span class="ja">すでに起動しています。停止するには「停止」を押してください。</span></div>{{end}}
 {{if .Saved}}<div class="box saved" role="status"><strong>Saved. Watching has started.</strong> <span class="ja">保存しました。監視を開始しました。</span></div>{{end}}
 {{if .ErrorList}}<div class="box errors" role="alert"><strong>Please fix this before saving. <span class="ja">保存する前に修正してください。</span></strong>
 <ul>{{range .ErrorList}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
 {{if .Notes}}<div class="box notes"><ul class="plain">{{range .Notes}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
 
-<form method="post" action="/save">
+<h2>Recent activity <span class="ja">最近の通知</span></h2>
+<div id="recent">
+{{if .Recent}}{{range .Recent}}<details class="item"><summary><span class="{{if .Sent}}sent{{else}}notsent{{end}}">{{.Result}}</span> · {{.When}} · {{.Label}}{{if .Title}} · {{.Title}}{{end}}</summary><pre>{{.Text}}</pre></details>
+{{end}}{{else}}<span class="hint">Nothing yet. <span class="ja">まだありません。</span></span>{{end}}
+</div>
+
+<form method="post" action="/save" id="settings">
 <h2>1. Where should alerts go? <span class="ja">通知先</span></h2>
 <label for="webhook">Webhook address, such as Discord <span class="ja">Webhook のアドレス（Discord など）</span></label>
 <div class="row"><input type="text" id="webhook" name="webhook" autocomplete="off" spellcheck="false"
@@ -94,21 +142,11 @@
 {{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.English}} / {{.Japanese}}</option>
 {{end}}</select>
 <div class="hint">Tsunami, volcano and weather warnings are always sent. <span class="ja">津波・火山・特別警報は常に通知されます。</span></div>
-
-<p style="margin-top:1.75rem"><button type="submit" class="primary">Save and start <span class="ja">保存して開始</span></button></p>
 </form>
-
-<h2>Recent activity <span class="ja">最近の通知</span></h2>
-<ul class="plain hint" id="sources">{{range .Sources}}<li>{{.}}</li>{{end}}</ul>
-<div id="recent">
-{{if .Recent}}{{range .Recent}}<details class="item"><summary><span class="{{if .Sent}}sent{{else}}notsent{{end}}">{{.Result}}</span> · {{.When}} · {{.Label}}{{if .Title}} · {{.Title}}{{end}}</summary><pre>{{.Text}}</pre></details>
-{{end}}{{else}}<span class="hint">Nothing yet. <span class="ja">まだありません。</span></span>{{end}}
-</div>
 
 <footer>
 <div>Source: Japan Meteorological Agency, P2P Quake. An unofficial relay: it does not replace the alerts on a Japanese phone.<br>
 <span class="ja">出典：気象庁、P2P地震情報。非公式の中継です。日本の携帯電話の緊急速報の代わりにはなりません。</span></div>
-<div>Version {{.Version}}</div>
 </footer>
 </main>
 <script nonce="{{.Nonce}}">
@@ -139,26 +177,67 @@
   }
   everywhere.addEventListener('change', toggle); toggle();
 
+  // While watching, only Stop is offered; changing a setting offers Save and start too, since Stop ends the program.
+  var form = $('settings'), running = !$('stop').disabled;
+  function snapshot() { return new URLSearchParams(new FormData(form)).toString(); }
+  // A refused save shows values that were never kept, and trying the same again must stay possible.
+  var saved = document.querySelector('.errors') ? null : snapshot();
+  function lock() { $('start').disabled = running && snapshot() === saved; }
+  form.addEventListener('input', lock);
+  form.addEventListener('change', lock);
+
+  function showSources(list) {
+    var src = $('sources');
+    while (src.children.length > list.length) { src.removeChild(src.lastElementChild); }
+    list.forEach(function (source, i) {
+      var li = src.children[i];
+      if (!li) {
+        var light = document.createElement('span');
+        li = document.createElement('li');
+        light.className = 'light'; light.setAttribute('aria-hidden', 'true');
+        li.appendChild(light); li.appendChild(document.createTextNode('')); src.appendChild(li);
+      }
+      // Updated in place, so a blinking light does not restart every few seconds.
+      li.className = source.state; li.lastChild.textContent = source.text;
+    });
+  }
+
+  var opened = new Set(), shown = null;
+  function keyOf(d) { return d.querySelector('summary').textContent; }
+  // toggle does not bubble, so it is caught on the way down.
+  $('recent').addEventListener('toggle', function (e) {
+    if (e.target.open) { opened.add(keyOf(e.target)); } else { opened.delete(keyOf(e.target)); }
+  }, true);
   function item(a) {
     var d = document.createElement('details'), s = document.createElement('summary'), r = document.createElement('span');
     d.className = 'item';
     r.className = a.sent ? 'sent' : 'notsent'; r.textContent = a.result;
     s.appendChild(r); s.appendChild(document.createTextNode(' · ' + a.when + ' · ' + a.label + (a.title ? ' · ' + a.title : '')));
     var p = document.createElement('pre'); p.textContent = a.text;
-    d.appendChild(s); d.appendChild(p); return d;
+    d.appendChild(s); d.appendChild(p);
+    d.open = opened.has(keyOf(d));
+    return d;
   }
+  function showRecent(list) {
+    var key = JSON.stringify(list);
+    if (key === shown) { return; }
+    shown = key;
+    var rec = $('recent'); rec.textContent = '';
+    if (list.length === 0) { rec.textContent = 'Nothing yet. / まだありません。'; }
+    list.forEach(function (a) { rec.appendChild(item(a)); });
+  }
+
   function refresh() {
     fetch('/status.json', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (s) {
         if (!s) { return; }
         $('summary').textContent = s.running ? s.summary : 'Not set up yet / まだ設定されていません';
-        $('stop').disabled = !s.running;
-        var src = $('sources'); src.textContent = '';
-        s.sources.forEach(function (line) { var li = document.createElement('li'); li.textContent = line; src.appendChild(li); });
-        var rec = $('recent'); rec.textContent = '';
-        if (s.recent.length === 0) { rec.textContent = 'Nothing yet. / まだありません。'; }
-        s.recent.forEach(function (a) { rec.appendChild(item(a)); });
+        running = s.running;
+        $('stop').disabled = !running;
+        lock();
+        showSources(s.sources);
+        showRecent(s.recent);
       })
       .catch(function () {});
   }

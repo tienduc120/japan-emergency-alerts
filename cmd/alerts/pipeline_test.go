@@ -29,6 +29,7 @@ type fakeSource struct {
 	since   time.Time // what the program told the source about the last run
 	horizon time.Time // what the source says it has read up to
 	status  string
+	health  alert.Health
 	run     func(ctx context.Context, handle jma.Handler) error
 	replay  func(ctx context.Context, handle jma.Handler) error
 }
@@ -51,6 +52,8 @@ func (s *fakeSource) Replay(ctx context.Context) error {
 func (s *fakeSource) Horizon() time.Time { return s.horizon }
 
 func (s *fakeSource) Status() string { return s.status }
+
+func (s *fakeSource) Health() alert.Health { return s.health }
 
 func fakeSources(s *fakeSource) sourceFactory {
 	return func(sc sourceConfig) []runner {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,9 +30,19 @@ func (l *activityLog) add(a web.Activity) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.items = append([]web.Activity{a}, l.items...)
-	if len(l.items) > maxActivity {
-		l.items = l.items[:maxActivity]
+	if len(l.items) <= maxActivity {
+		return
 	}
+	// Alerts for elsewhere come several a day, so the oldest of them makes room first, or the person's own would be
+	// pushed out within days. The newest is always kept.
+	drop := len(l.items) - 1
+	for i := drop; i > 0; i-- {
+		if l.items[i].Elsewhere {
+			drop = i
+			break
+		}
+	}
+	l.items = slices.Delete(l.items, drop, drop+1)
 }
 
 func (l *activityLog) list() []web.Activity {
@@ -164,15 +175,29 @@ func (a *app) Snapshot() web.Snapshot {
 	}
 	if a.running {
 		snap.Summary = summary(a.cfg)
-		for _, source := range a.built {
-			if s, ok := source.(statuser); ok {
-				if line := s.Status(); line != "" {
-					snap.Sources = append(snap.Sources, line)
-				}
-			}
-		}
+		snap.Sources = sourceLines(a.built)
 	}
 	return snap
+}
+
+// sourceLines are the sources' health lines, each with the colour of its light when the source can tell.
+func sourceLines(built []runner) []web.Source {
+	var lines []web.Source
+	for _, source := range built {
+		s, ok := source.(statuser)
+		if !ok {
+			continue
+		}
+		line := web.Source{Text: s.Status()}
+		if line.Text == "" {
+			continue
+		}
+		if h, known := source.(healther); known {
+			line.State = h.Health()
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // notes are things the person should know before they change anything. The caller holds the lock.

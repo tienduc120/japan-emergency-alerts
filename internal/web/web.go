@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 )
 
@@ -44,6 +45,15 @@ type Activity struct {
 	Text   string
 	Result string
 	Sent   bool
+	// Elsewhere marks an alert for a place that is not watched. There are many and they are about someone else, so the
+	// list shows them last.
+	Elsewhere bool
+}
+
+// Source is one line about the health of a feed, and the colour of its light.
+type Source struct {
+	Text  string       `json:"text"`
+	State alert.Health `json:"state"`
 }
 
 // Snapshot is what the page shows, taken at one moment.
@@ -58,7 +68,7 @@ type Snapshot struct {
 	Running      bool
 	Summary      string
 	// Sources are one line each about the health of the feeds.
-	Sources []string
+	Sources []Source
 	// Recent is newest first.
 	Recent []Activity
 }
@@ -238,10 +248,10 @@ func (s *server) status(w http.ResponseWriter, _ *http.Request) {
 	reply := struct {
 		Running bool     `json:"running"`
 		Summary string   `json:"summary"`
-		Sources []string `json:"sources"`
+		Sources []Source `json:"sources"`
 		Recent  []item   `json:"recent"`
 	}{Running: snap.Running, Summary: snap.Summary, Sources: nonNil(snap.Sources), Recent: []item{}}
-	for _, a := range snap.Recent {
+	for _, a := range listed(snap.Recent) {
 		reply.Recent = append(reply.Recent, item{
 			When: inJST(a.When), Label: a.Label, Title: a.Title, Text: a.Text, Result: a.Result, Sent: a.Sent,
 		})
@@ -250,9 +260,25 @@ func (s *server) status(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(reply)
 }
 
-func nonNil(list []string) []string {
+// listed is the order the page shows activity in: as it came, newest first, with the alerts for elsewhere moved last.
+func listed(recent []Activity) []Activity {
+	out := slices.Clone(recent)
+	slices.SortStableFunc(out, func(a, b Activity) int {
+		switch {
+		case a.Elsewhere == b.Elsewhere:
+			return 0
+		case b.Elsewhere:
+			return -1
+		default:
+			return 1
+		}
+	})
+	return out
+}
+
+func nonNil[T any](list []T) []T {
 	if list == nil {
-		return []string{}
+		return []T{}
 	}
 	return list
 }

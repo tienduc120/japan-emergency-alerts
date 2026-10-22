@@ -66,6 +66,11 @@ type statuser interface {
 	Status() string
 }
 
+// healther is a source that can also say whether it works, for the light beside its line on the settings page.
+type healther interface {
+	Health() alert.Health
+}
+
 // sourceConfig is what a source needs to start: where to hand alerts, where to log, and when the previous run last read
 // everything (zero on a first run).
 type sourceConfig struct {

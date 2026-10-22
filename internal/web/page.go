@@ -52,7 +52,8 @@ type pageData struct {
 	Again           bool
 	Running         bool
 	Summary         string
-	Sources, Notes  []string
+	Sources         []Source
+	Notes           []string
 	Groups          []groupView
 	Everywhere      bool
 	Options         []optionView
@@ -129,7 +130,7 @@ func (s *server) render(w http.ResponseWriter, code int, snap Snapshot, chosen c
 		WebhookSaved: strings.TrimSpace(snap.Saved.WebhookURL) != "",
 		WebhookTyped: chosen.webhookTyped,
 	}
-	for _, a := range snap.Recent {
+	for _, a := range listed(snap.Recent) {
 		data.Recent = append(data.Recent, activityView{
 			When: inJST(a.When), Label: a.Label, Title: a.Title, Text: a.Text, Result: a.Result, Sent: a.Sent,
 		})
