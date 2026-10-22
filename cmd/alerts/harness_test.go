@@ -15,8 +15,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/tienduc120/japan-emergency-alerts/internal/notice"
 )
 
 // testEnvironment replaces everything outside the program: no browser opens, no fixed port is used, and the settings
@@ -45,7 +43,6 @@ type harness struct {
 	stderr     syncBuffer
 	opened     chan string
 	windows    chan [2]string
-	notices    chan notice.Message
 	configPath string
 	statePath  string
 	env        environment
@@ -57,7 +54,6 @@ func newHarness(t *testing.T, settings map[string]string, sources sourceFactory)
 		t:          t,
 		opened:     make(chan string, 4),
 		windows:    make(chan [2]string, 8),
-		notices:    make(chan notice.Message, 4),
 		configPath: filepath.Join(t.TempDir(), "config.json"),
 		statePath:  filepath.Join(t.TempDir(), "state.json"),
 	}
@@ -70,10 +66,6 @@ func newHarness(t *testing.T, settings map[string]string, sources sourceFactory)
 	}
 	h.env.popupShow = func(_ context.Context, title, text string) error {
 		h.windows <- [2]string{title, text}
-		return nil
-	}
-	h.env.notice = func(_ context.Context, m notice.Message) error {
-		h.notices <- m
 		return nil
 	}
 	return h

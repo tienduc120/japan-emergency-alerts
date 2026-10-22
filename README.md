@@ -40,7 +40,7 @@ Keep the address secret: anyone with it can post in your channel.
 
 ## Day to day
 
-- **With Start with Windows ticked, it starts when you sign in.** It does not open the settings page then: a short notification says "Japan Emergency Alerts is running" and fades by itself. Click it, or the program's icon beside the clock while it is there, to open the settings page.
+- **With Start with Windows ticked, it starts quietly when you sign in.** Nothing opens; it just watches. To see it, open the settings page.
 - **Without it, double-click the file after a restart.** On Windows the settings page opens each time you start it yourself.
 - **To check it, change a setting or stop it, double-click the file again.** It never starts a second copy: it opens the settings page of the running one, where **Stop running** stops it.
 - **Made your own start-up shortcut before this box existed?** Delete it (press Windows key + R, type `shell:startup`, press Enter) and tick the box instead. Your shortcut would open the settings page at every sign-in.

@@ -749,6 +749,9 @@ func TestTheStartWithWindowsBoxIsOfferedOnlyWhereItWorks(t *testing.T) {
 	if !strings.Contains(startupBox(on), "checked") {
 		t.Error("the box must show the entry that is there")
 	}
+	if strings.Contains(off, "notification") {
+		t.Error("a start with Windows shows nothing, so the page must not promise a notification")
+	}
 }
 
 func TestSavingPassesTheStartWithWindowsBox(t *testing.T) {

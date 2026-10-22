@@ -1,7 +1,7 @@
 // Command alerts relays major Japan emergency alerts to a webhook.
 //
 //	alerts            watch until stopped; opens the settings page (on Windows every time, elsewhere the first time)
-//	alerts autostart  the same, started by Windows at sign-in: a short notification instead of the page
+//	alerts autostart  the same, started by Windows at sign-in: nothing is shown
 //	alerts test       post one test message to the webhook and exit
 //	alerts check      show what the last few days of JMA alerts would have done, and post nothing
 package main
@@ -29,7 +29,6 @@ import (
 	"github.com/tienduc120/japan-emergency-alerts/internal/eew"
 	"github.com/tienduc120/japan-emergency-alerts/internal/filter"
 	"github.com/tienduc120/japan-emergency-alerts/internal/jma"
-	"github.com/tienduc120/japan-emergency-alerts/internal/notice"
 	"github.com/tienduc120/japan-emergency-alerts/internal/notify"
 	"github.com/tienduc120/japan-emergency-alerts/internal/popup"
 	"github.com/tienduc120/japan-emergency-alerts/internal/startup"
@@ -115,11 +114,9 @@ type environment struct {
 	startup startupEntry
 	// executable is this program's path, which the start-with-Windows entry names.
 	executable func() (string, error)
-	// notice shows the start-up notification; live it is a helper process on Windows.
-	notice  func(ctx context.Context, m notice.Message) error
-	sources sourceFactory
-	stdout  io.Writer
-	stderr  io.Writer
+	sources    sourceFactory
+	stdout     io.Writer
+	stderr     io.Writer
 }
 
 func liveEnvironment(getenv func(string) string, stdout, stderr io.Writer) environment {
@@ -130,7 +127,6 @@ func liveEnvironment(getenv func(string) string, stdout, stderr io.Writer) envir
 		listen:     func(ctx context.Context) (net.Listener, error) { return listenPreferring(ctx, preferredAddress) },
 		startup:    liveStartup(),
 		executable: os.Executable,
-		notice:     notice.Show,
 		sources:    liveSources,
 		stdout:     stdout,
 		stderr:     stderr,
@@ -153,7 +149,7 @@ func runMain() int {
 	}
 	var failure bytes.Buffer
 	// The pop-up helper is left alone: it must not take over, and so empty, the log of the program that started it.
-	if !terminal && !isHelper(args) {
+	if !terminal && !isPopupHelper(args) {
 		log := openLogFile(os.Getenv)
 		defer func() { _ = log.Close() }()
 		stdout = log
@@ -171,15 +167,12 @@ func runMain() int {
 	return code
 }
 
-// isHelper says the program was started by itself to show a pop-up window or the start-up notification.
-func isHelper(args []string) bool {
-	return len(args) == 1 && (args[0] == popup.WindowCommand || args[0] == notice.Command)
-}
+func isPopupHelper(args []string) bool { return len(args) == 1 && args[0] == popup.WindowCommand }
 
-// holdsWindowOpen says whether a person needs time to read the failure. A helper runs with nobody at its console, and
-// its failure is reported by the program that started it.
+// holdsWindowOpen says whether a person needs time to read the failure. The pop-up helper runs with nobody at its
+// console, and its failure is reported by the program that started it.
 func holdsWindowOpen(args []string, code int) bool {
-	return code != 0 && !isHelper(args)
+	return code != 0 && !isPopupHelper(args)
 }
 
 // showFailure tells someone who started the program by double-clicking, with no terminal to print on, why it stopped.
@@ -196,8 +189,13 @@ func mainWith(ctx context.Context, args []string, getenv func(string) string, st
 
 // execute runs one command of the program. Problems a person must fix go to stderr as plain sentences.
 func execute(ctx context.Context, args []string, env environment) int {
-	if isHelper(args) {
-		return runHelper(ctx, args[0], env)
+	if isPopupHelper(args) {
+		// Not for people: the program starts itself this way to show one window of its own on Windows.
+		if err := popup.RunWindowCommand(os.Stdin); err != nil {
+			fmt.Fprintf(env.stderr, "pop-up window: %v\n", err)
+			return 1
+		}
+		return 0
 	}
 	command, ok := commandOf(args)
 	if !ok {
@@ -215,22 +213,6 @@ func execute(ctx context.Context, args []string, env environment) int {
 		return sendTest(ctx, cfg, env)
 	}
 	return check(ctx, cfg, env.stdout, env.stderr, env.sources)
-}
-
-// runHelper is not for people: the program starts itself this way on Windows to show a window or the start-up
-// notification of its own.
-func runHelper(ctx context.Context, command string, env environment) int {
-	var err error
-	if command == notice.Command {
-		err = notice.RunHelper(ctx, os.Stdin, env.open)
-	} else {
-		err = popup.RunWindowCommand(os.Stdin)
-	}
-	if err != nil {
-		fmt.Fprintf(env.stderr, "%s: %v\n", command, err)
-		return 1
-	}
-	return 0
 }
 
 // loadConfig is for the commands that cannot ask the person anything: they must say what is missing.
