@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tienduc120/japan-emergency-alerts/internal/notice"
 )
 
 // testEnvironment replaces everything outside the program: no browser opens, no fixed port is used, and the settings
@@ -43,6 +45,7 @@ type harness struct {
 	stderr     syncBuffer
 	opened     chan string
 	windows    chan [2]string
+	notices    chan notice.Message
 	configPath string
 	statePath  string
 	env        environment
@@ -54,6 +57,7 @@ func newHarness(t *testing.T, settings map[string]string, sources sourceFactory)
 		t:          t,
 		opened:     make(chan string, 4),
 		windows:    make(chan [2]string, 8),
+		notices:    make(chan notice.Message, 4),
 		configPath: filepath.Join(t.TempDir(), "config.json"),
 		statePath:  filepath.Join(t.TempDir(), "state.json"),
 	}
@@ -66,6 +70,10 @@ func newHarness(t *testing.T, settings map[string]string, sources sourceFactory)
 	}
 	h.env.popupShow = func(_ context.Context, title, text string) error {
 		h.windows <- [2]string{title, text}
+		return nil
+	}
+	h.env.notice = func(_ context.Context, m notice.Message) error {
+		h.notices <- m
 		return nil
 	}
 	return h
@@ -122,9 +130,12 @@ func (h *harness) onWindows(entry *fakeStartup) {
 }
 
 // start runs the program until ctx ends and delivers its exit code.
-func (h *harness) start(ctx context.Context) <-chan int {
+func (h *harness) start(ctx context.Context) <-chan int { return h.startWith(ctx, nil) }
+
+// startWith is start with a command line, such as the marker the start-with-Windows entry adds.
+func (h *harness) startWith(ctx context.Context, args []string) <-chan int {
 	done := make(chan int, 1)
-	go func() { done <- execute(ctx, nil, h.env) }()
+	go func() { done <- execute(ctx, args, h.env) }()
 	return done
 }
 

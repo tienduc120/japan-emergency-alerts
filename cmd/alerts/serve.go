@@ -16,6 +16,7 @@ import (
 	"github.com/tienduc120/japan-emergency-alerts/internal/async"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 	"github.com/tienduc120/japan-emergency-alerts/internal/fileutil"
+	"github.com/tienduc120/japan-emergency-alerts/internal/notice"
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
 )
 
@@ -33,9 +34,10 @@ const (
 // errAlreadyRunning means the settings port belongs to another copy of this program.
 var errAlreadyRunning = errors.New("another copy of this program is already running")
 
-// serve is the default command: it serves the settings page and watches whenever the settings allow. The first time,
-// when there is no webhook yet, it opens the page in the browser.
-func serve(ctx context.Context, env environment) int {
+// serve is the default command: it serves the settings page and watches whenever the settings allow. byWindows says
+// Windows started it at sign-in, which shows a notification instead of the page. Elsewhere a start by a person opens
+// the page on Windows, and opens it only when nothing is set up on systems that cannot tell the two starts apart.
+func serve(ctx context.Context, env environment, byWindows bool) int {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	logger := slog.New(slog.NewTextHandler(env.stdout, nil))
@@ -44,6 +46,10 @@ func serve(ctx context.Context, env environment) int {
 
 	listener, err := env.listen(ctx)
 	if errors.Is(err, errAlreadyRunning) {
+		if byWindows {
+			// The copy that is running is already watching; nobody asked to see its page.
+			return 0
+		}
 		return showRunningCopy(ctx, env)
 	}
 	if err != nil {
@@ -71,19 +77,14 @@ func serve(ctx context.Context, env environment) int {
 		}
 	}
 
+	keepStartupEntry(ctx, env, logger)
 	fmt.Fprintf(env.stdout, "Japan Emergency Alerts %s\nSettings page: %s\n", version, pageURL)
-	if loaded := a.reload(); loaded.Problems != nil {
+	loaded := a.reload()
+	if loaded.Problems != nil {
 		fmt.Fprintln(
 			env.stdout,
-			"Not set up yet. Opening the settings page in your browser; nothing is watched until you press Save and start.",
+			"Not set up yet: nothing is watched until you press Save and start on the settings page.",
 		)
-		if openErr := env.open(ctx, pageURL); openErr != nil {
-			fmt.Fprintf(
-				env.stdout,
-				"The browser could not be opened (%v). Copy the address above into your browser.\n",
-				openErr,
-			)
-		}
 	} else {
 		fmt.Fprintf(
 			env.stdout,
@@ -92,12 +93,75 @@ func serve(ctx context.Context, env environment) int {
 			loaded.Config.MinIntensity.Japanese(),
 		)
 	}
+	tasks := []func(context.Context) error{a.supervise, serveHTTP(srv, listener), a.window.Run}
+	switch {
+	case byWindows && env.startup != nil:
+		tasks = append(tasks, showNotice(env, logger, startNotice(loaded, pageURL)))
+	case loaded.Problems != nil || env.startup != nil:
+		openPage(ctx, env, pageURL)
+	}
 
-	if err = async.Run(ctx, a.supervise, serveHTTP(srv, listener), a.window.Run); err != nil {
+	if err = async.Run(ctx, tasks...); err != nil {
 		fmt.Fprintf(env.stderr, "stopped: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func openPage(ctx context.Context, env environment, pageURL string) {
+	if err := env.open(ctx, pageURL); err != nil {
+		fmt.Fprintf(
+			env.stdout,
+			"The browser could not be opened (%v). Copy the address above into your browser.\n",
+			err,
+		)
+	}
+}
+
+// startNotice is what the notification says when Windows starts the program at sign-in.
+func startNotice(loaded config.Loaded, pageURL string) notice.Message {
+	if loaded.Problems != nil {
+		return notice.Message{
+			Title:   "Japan Emergency Alerts: not set up yet / 未設定",
+			Text:    "Click to set it up. / クリックして設定してください。",
+			Address: pageURL,
+		}
+	}
+	return notice.Message{
+		Title:   "Japan Emergency Alerts is running / 起動中",
+		Text:    summary(loaded.Config) + "\nClick to open the settings. / クリックで設定を開きます。",
+		Address: pageURL,
+	}
+}
+
+// showNotice shows the start-up notification. Not being able to is logged once and never stops the watching.
+func showNotice(env environment, logger *slog.Logger, m notice.Message) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if err := env.notice(ctx, notice.Fit(m)); err != nil && ctx.Err() == nil {
+			logger.WarnContext(ctx, "the start-up notification could not be shown", "error", err)
+		}
+		return nil
+	}
+}
+
+// keepStartupEntry points the start-with-Windows entry at this program again when the file was moved, so moving it
+// does not quietly end starting with Windows. An entry that is off stays off: only the settings page turns it on.
+func keepStartupEntry(ctx context.Context, env environment, logger *slog.Logger) {
+	if env.startup == nil {
+		return
+	}
+	on, named, err := env.startup.State()
+	if err != nil || !on {
+		return
+	}
+	exe, err := env.executable()
+	// Windows paths ignore case.
+	if err != nil || strings.EqualFold(exe, named) {
+		return
+	}
+	if err = env.startup.Enable(exe); err != nil {
+		logger.WarnContext(ctx, "the start-with-Windows entry could not follow the program", "error", err)
+	}
 }
 
 // showRunningCopy is what a second copy does instead of watching: it opens the first copy's settings page when it can

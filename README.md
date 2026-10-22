@@ -17,11 +17,12 @@ Nothing to install, no terminal, no unzipping.
 3. Your browser opens the settings page (English and Japanese). In part 1, choose where alerts go and press **Test**: tick **Show a pop-up window on this computer**, and/or paste a [Discord webhook](#discord-webhook-for-your-phone).
 4. In part 2, tick the prefecture you are in (a region of Japan, like a state). Not sure? Narita Airport and Tokyo Disney Resort are in Chiba. See [Choosing your location](#choosing-your-location).
 5. In part 3, pick the weakest earthquake you want to hear about. The default, **5-lower** (5弱), is strong shaking. Tsunami, volcano and weather warnings are always sent.
-6. Press **Save and start**, at the top right of the page. Nothing is watched until you do. Then close the tab: the program keeps running in the background.
+6. In part 4, tick **Start with Windows when I sign in** if you want it to watch after every restart without you starting it.
+7. Press **Save and start**, at the top right of the page. Nothing is watched until you do. Then close the tab: the program keeps running in the background.
 
 ## Mac and Linux
 
-Download the zip for your system from the [latest release](https://github.com/tienduc120/japan-emergency-alerts/releases/latest), unzip it, run `alerts`, then follow steps 3 to 6. The zip name ends in `_darwin_arm64` (Apple silicon Mac), `_darwin_amd64` (Intel Mac), `_linux_amd64` or `_linux_arm64`.
+Download the zip for your system from the [latest release](https://github.com/tienduc120/japan-emergency-alerts/releases/latest), unzip it, run `alerts`, then follow steps 3 to 5 and 7. Part 4 is Windows only. The zip name ends in `_darwin_arm64` (Apple silicon Mac), `_darwin_amd64` (Intel Mac), `_linux_amd64` or `_linux_arm64`.
 
 - **macOS** may refuse an unidentified developer: right-click the file, choose **Open**. If still blocked, run `xattr -d com.apple.quarantine alerts`.
 - **Linux**: run `chmod +x alerts` once. Pop-ups need `notify-send` or `zenity`; without either, only the webhook works.
@@ -39,8 +40,10 @@ Keep the address secret: anyone with it can post in your channel.
 
 ## Day to day
 
-- **It does not start by itself after a restart.** Double-click the file again. It then watches silently, so it can look as if nothing happened.
+- **With Start with Windows ticked, it starts when you sign in.** It does not open the settings page then: a short notification says "Japan Emergency Alerts is running" and fades by itself. Click it, or the program's icon beside the clock while it is there, to open the settings page.
+- **Without it, double-click the file after a restart.** On Windows the settings page opens each time you start it yourself.
 - **To check it, change a setting or stop it, double-click the file again.** It never starts a second copy: it opens the settings page of the running one, where **Stop running** stops it.
+- **Made your own start-up shortcut before this box existed?** Delete it (press Windows key + R, type `shell:startup`, press Enter) and tick the box instead. Your shortcut would open the settings page at every sign-in.
 - **A sleeping computer cannot warn you.** When it wakes, the program sends what JMA published in the meantime (up to 12 hours), marked "sent late". Early warnings are never caught up.
 - **Open the settings page at [http://127.0.0.1:47600/](http://127.0.0.1:47600/)**, or by double-clicking the file. Bookmark it. It works only on your computer, but anyone using your computer can open it, so keep this program on a computer that is yours.
 - **While it is watching, only Stop running can be pressed.** Change any setting and **Save and start** can be pressed too, to watch with the new settings.
