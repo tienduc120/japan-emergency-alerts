@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,9 +30,19 @@ func (l *activityLog) add(a web.Activity) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.items = append([]web.Activity{a}, l.items...)
-	if len(l.items) > maxActivity {
-		l.items = l.items[:maxActivity]
+	if len(l.items) <= maxActivity {
+		return
 	}
+	// Alerts for elsewhere come several a day, so the oldest of them makes room first, or the person's own would be
+	// pushed out within days. The newest is always kept.
+	drop := len(l.items) - 1
+	for i := drop; i > 0; i-- {
+		if l.items[i].Elsewhere {
+			drop = i
+			break
+		}
+	}
+	l.items = slices.Delete(l.items, drop, drop+1)
 }
 
 func (l *activityLog) list() []web.Activity {
@@ -164,15 +175,34 @@ func (a *app) Snapshot() web.Snapshot {
 	}
 	if a.running {
 		snap.Summary = summary(a.cfg)
-		for _, source := range a.built {
-			if s, ok := source.(statuser); ok {
-				if line := s.Status(); line != "" {
-					snap.Sources = append(snap.Sources, line)
-				}
-			}
-		}
+		snap.Sources = sourceLines(a.built)
+	}
+	if a.env.startup != nil {
+		snap.StartupOffered = true
+		// An entry that cannot be read shows as off; saving with the box ticked writes it again.
+		snap.StartupOn, _, _ = a.env.startup.State()
 	}
 	return snap
+}
+
+// sourceLines are the sources' health lines, each with the colour of its light when the source can tell.
+func sourceLines(built []runner) []web.Source {
+	var lines []web.Source
+	for _, source := range built {
+		s, ok := source.(statuser)
+		if !ok {
+			continue
+		}
+		line := web.Source{Text: s.Status()}
+		if line.Text == "" {
+			continue
+		}
+		if h, known := source.(healther); known {
+			line.State = h.Health()
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // notes are things the person should know before they change anything. The caller holds the lock.
@@ -204,8 +234,11 @@ func (a *app) notes() []string {
 }
 
 // Save keeps the settings and starts watching with them. Nothing is kept unless every setting passes.
-func (a *app) Save(ctx context.Context, f config.File) error {
+func (a *app) Save(ctx context.Context, f config.File, startWithWindows bool) error {
 	if err := config.Check(a.env.getenv, f); err != nil {
+		return err
+	}
+	if err := a.applyStartup(startWithWindows); err != nil {
 		return err
 	}
 	a.mu.Lock()
@@ -219,6 +252,32 @@ func (a *app) Save(ctx context.Context, f config.File) error {
 	default:
 	}
 	a.logger.InfoContext(ctx, "settings saved", "file", path)
+	return nil
+}
+
+// applyStartup turns the start-with-Windows entry on or off. On Windows ticking it always rewrites it, which also
+// clears Task Manager's mark when someone had turned it off there.
+func (a *app) applyStartup(on bool) error {
+	if a.env.startup == nil {
+		return nil
+	}
+	exe, err := a.env.executable()
+	if err != nil {
+		return fmt.Errorf("start with Windows could not be set: find this program: %w", err)
+	}
+	// Writing only on a change keeps a Run key that security software locks from refusing every save.
+	if now, named, stateErr := a.env.startup.State(); stateErr == nil && now == on &&
+		(!on || strings.EqualFold(named, exe)) {
+		return nil
+	}
+	if on {
+		err = a.env.startup.Enable(exe)
+	} else {
+		err = a.env.startup.Disable()
+	}
+	if err != nil {
+		return fmt.Errorf("start with Windows could not be set: %w", err)
+	}
 	return nil
 }
 
@@ -260,6 +319,6 @@ func (a *app) TestPopup(ctx context.Context) error {
 }
 
 func summary(cfg config.Config) string {
-	return fmt.Sprintf("Watching %s from intensity %s / 監視中：%s・震度%s以上",
+	return fmt.Sprintf("Watching %s from intensity %s\n監視中：%s・震度%s以上",
 		cfg.Location, cfg.MinIntensity.Japanese(), cfg.Location, cfg.MinIntensity.Japanese())
 }

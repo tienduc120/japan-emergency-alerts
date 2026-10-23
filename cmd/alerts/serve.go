@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +27,6 @@ const (
 	headerTimeout    = 5 * time.Second
 	readTimeout      = 10 * time.Second
 	writeTimeout     = 30 * time.Second
-	keyBytes         = 16
 	// probeTimeout is long for a program on the same computer, so a copy that is merely busy is still recognized.
 	probeTimeout = 2 * time.Second
 )
@@ -36,9 +34,10 @@ const (
 // errAlreadyRunning means the settings port belongs to another copy of this program.
 var errAlreadyRunning = errors.New("another copy of this program is already running")
 
-// serve is the default command: it serves the settings page and watches whenever the settings allow. The first time,
-// when there is no webhook yet, it opens the page in the browser.
-func serve(ctx context.Context, env environment) int {
+// serve is the default command: it serves the settings page and watches whenever the settings allow. byWindows says
+// Windows started it at sign-in, which shows nothing. Otherwise a start by a person opens the page on Windows, and opens
+// it only when nothing is set up on systems that cannot tell the two starts apart.
+func serve(ctx context.Context, env environment, byWindows bool) int {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	logger := slog.New(slog.NewTextHandler(env.stdout, nil))
@@ -47,19 +46,22 @@ func serve(ctx context.Context, env environment) int {
 
 	listener, err := env.listen(ctx)
 	if errors.Is(err, errAlreadyRunning) {
+		if byWindows {
+			// The copy that is running is already watching; nobody asked to see its page.
+			return 0
+		}
 		return showRunningCopy(ctx, env)
 	}
 	if err != nil {
 		fmt.Fprintf(env.stderr, "could not start the settings page: %v\n", err)
 		return 1
 	}
-	key := randomKey()
 	address := listener.Addr().String()
 	_, port, _ := net.SplitHostPort(address)
-	pageURL := "http://" + address + "/?key=" + key
+	pageURL := "http://" + address + "/"
 	srv := &http.Server{
 		Handler: web.New(a, web.Options{
-			Key: key, Hosts: []string{address, net.JoinHostPort("localhost", port)}, Version: version,
+			Hosts: []string{address, net.JoinHostPort("localhost", port)}, Version: version,
 		}),
 		ReadHeaderTimeout: headerTimeout,
 		ReadTimeout:       readTimeout,
@@ -70,24 +72,19 @@ func serve(ctx context.Context, env environment) int {
 		if writeErr := fileutil.WriteAtomic(path, []byte(pageURL+"\n")); writeErr != nil {
 			logger.WarnContext(ctx, "the settings address could not be kept for a second copy", "error", writeErr)
 		} else {
-			// The address carries the key to the settings page, so it goes when the program does.
+			// A second copy trusts this file, so it must not point at a page that is gone.
 			defer func() { _ = os.Remove(path) }()
 		}
 	}
 
+	keepStartupEntry(ctx, env, logger)
 	fmt.Fprintf(env.stdout, "Japan Emergency Alerts %s\nSettings page: %s\n", version, pageURL)
-	if loaded := a.reload(); loaded.Problems != nil {
+	loaded := a.reload()
+	if loaded.Problems != nil {
 		fmt.Fprintln(
 			env.stdout,
-			"Not set up yet. Opening the settings page in your browser; nothing is watched until you press Save and start.",
+			"Not set up yet: nothing is watched until you press Save and start on the settings page.",
 		)
-		if openErr := env.open(ctx, pageURL); openErr != nil {
-			fmt.Fprintf(
-				env.stdout,
-				"The browser could not be opened (%v). Copy the address above into your browser.\n",
-				openErr,
-			)
-		}
 	} else {
 		fmt.Fprintf(
 			env.stdout,
@@ -96,19 +93,66 @@ func serve(ctx context.Context, env environment) int {
 			loaded.Config.MinIntensity.Japanese(),
 		)
 	}
+	tasks := []func(context.Context) error{a.supervise, serveHTTP(srv, listener), a.window.Run}
+	quiet := byWindows && env.startup != nil
+	if !quiet && (loaded.Problems != nil || env.startup != nil) {
+		// Opened alongside serving, not before: a browser slow to start would leave the port unanswered, and a second
+		// copy that cannot recognize this one would start watching too.
+		tasks = append(tasks, func(ctx context.Context) error {
+			openPage(ctx, env, pageURL)
+			return nil
+		})
+	}
 
-	if err = async.Run(ctx, a.supervise, serveHTTP(srv, listener), a.window.Run); err != nil {
+	if err = async.Run(ctx, tasks...); err != nil {
 		fmt.Fprintf(env.stderr, "stopped: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
+func openPage(ctx context.Context, env environment, pageURL string) {
+	if err := env.open(ctx, pageURL); err != nil {
+		fmt.Fprintf(
+			env.stdout,
+			"The browser could not be opened (%v). Copy the address above into your browser.\n",
+			err,
+		)
+	}
+}
+
+// keepStartupEntry points the start-with-Windows entry at this program again when the file was moved, so moving it
+// does not quietly end starting with Windows. An entry that is off stays off: only the settings page turns it on.
+func keepStartupEntry(ctx context.Context, env environment, logger *slog.Logger) {
+	if env.startup == nil {
+		return
+	}
+	on, named, err := env.startup.State()
+	if err != nil || !on {
+		return
+	}
+	exe, err := env.executable()
+	// Windows paths ignore case.
+	if err != nil || strings.EqualFold(exe, named) || temporary(exe) {
+		return
+	}
+	if err = env.startup.Enable(exe); err != nil {
+		logger.WarnContext(ctx, "the start-with-Windows entry could not follow the program", "error", err)
+	}
+}
+
+// temporary says exe runs from the temporary folder, as with go run or an exe opened inside a zip, which is gone after a
+// restart.
+func temporary(exe string) bool {
+	tmp := filepath.Clean(os.TempDir()) + string(filepath.Separator)
+	return len(exe) > len(tmp) && strings.EqualFold(exe[:len(tmp)], tmp)
+}
+
 // showRunningCopy is what a second copy does instead of watching: it opens the first copy's settings page when it can
 // find the address, and otherwise says where to look. Two copies would each send every alert.
 func showRunningCopy(ctx context.Context, env environment) int {
 	// The marker makes the page say the program was already running, and so where to stop it.
-	if address, ok := runningCopyAddress(env); ok && env.open(ctx, address+"&again=1") == nil {
+	if address, ok := runningCopyAddress(env); ok && env.open(ctx, address+"?again=1") == nil {
 		fmt.Fprint(
 			env.stdout,
 			"Japan Emergency Alerts is already running on this computer. Its settings page is open in your browser.\n"+
@@ -135,12 +179,11 @@ func runningCopyAddress(env environment) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	address := strings.TrimSpace(string(data))
-	u, err := url.Parse(address)
-	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Query().Get("key") == "" {
+	u, err := url.Parse(strings.TrimSpace(string(data)))
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" {
 		return "", false
 	}
-	return address, true
+	return "http://" + u.Host + "/", true
 }
 
 // serveHTTP runs the page's server until ctx ends, then lets requests in progress finish.
@@ -204,12 +247,4 @@ func isThisProgram(ctx context.Context, address string) bool {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	return resp.Header.Get("Server") == web.ServerName
-}
-
-func randomKey() string {
-	b := make([]byte, keyBytes)
-	if _, err := rand.Read(b); err != nil {
-		panic("no randomness available: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }

@@ -47,37 +47,42 @@ type activityView struct {
 }
 
 type pageData struct {
-	Nonce, Version  string
-	Saved           bool
-	Again           bool
-	Running         bool
-	Summary         string
-	Sources, Notes  []string
-	Groups          []groupView
-	Everywhere      bool
-	Options         []optionView
-	Popup           bool
-	WebhookSaved    bool
-	WebhookTyped    string
-	WebhookErrors   []string
-	LocationErrors  []string
-	IntensityErrors []string
-	ErrorList       []string
-	Recent          []activityView
+	Nonce, Version   string
+	Saved            bool
+	Again            bool
+	Running          bool
+	Summary          string
+	Sources          []Source
+	Notes            []string
+	Groups           []groupView
+	Everywhere       bool
+	Options          []optionView
+	Popup            bool
+	StartupOffered   bool
+	StartWithWindows bool
+	WebhookSaved     bool
+	WebhookTyped     string
+	WebhookErrors    []string
+	LocationErrors   []string
+	IntensityErrors  []string
+	ErrorList        []string
+	Recent           []activityView
 }
 
 // choice is what the form holds, whether it came from the saved settings or from a submission that did not pass.
 type choice struct {
-	webhookTyped string
-	popup        bool
-	places       map[int]bool
-	everywhere   bool
-	intensity    string
+	webhookTyped     string
+	popup            bool
+	places           map[int]bool
+	everywhere       bool
+	intensity        string
+	startWithWindows bool
 }
 
 func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	snap := s.app.Snapshot()
 	chosen := fromSaved(snap.Saved, snap.PopupDefault)
+	chosen.startWithWindows = snap.StartupOn
 	s.render(w, http.StatusOK, snap, chosen, nil, banner{
 		saved: r.URL.Query().Get("saved") == "1",
 		again: r.URL.Query().Get(againParam) == "1",
@@ -101,7 +106,7 @@ func (s *server) save(w http.ResponseWriter, r *http.Request) {
 	if file.Location == "" {
 		problems = config.FieldError{Field: config.EnvLocation, Problem: "needs at least one place"}
 	} else {
-		problems = s.app.Save(r.Context(), file)
+		problems = s.app.Save(r.Context(), file, chosen.startWithWindows)
 	}
 	if problems != nil {
 		s.render(w, http.StatusUnprocessableEntity, snap, chosen, problems, banner{})
@@ -123,13 +128,15 @@ func (s *server) render(w http.ResponseWriter, code int, snap Snapshot, chosen c
 		Groups: groupsFor(
 			chosen,
 		),
-		Everywhere:   chosen.everywhere,
-		Popup:        chosen.popup,
-		Options:      optionsFor(chosen.intensity),
-		WebhookSaved: strings.TrimSpace(snap.Saved.WebhookURL) != "",
-		WebhookTyped: chosen.webhookTyped,
+		Everywhere:       chosen.everywhere,
+		Popup:            chosen.popup,
+		StartupOffered:   snap.StartupOffered,
+		StartWithWindows: chosen.startWithWindows,
+		Options:          optionsFor(chosen.intensity),
+		WebhookSaved:     strings.TrimSpace(snap.Saved.WebhookURL) != "",
+		WebhookTyped:     chosen.webhookTyped,
 	}
-	for _, a := range snap.Recent {
+	for _, a := range listed(snap.Recent) {
 		data.Recent = append(data.Recent, activityView{
 			When: inJST(a.When), Label: a.Label, Title: a.Title, Text: a.Text, Result: a.Result, Sent: a.Sent,
 		})
@@ -173,11 +180,12 @@ func fromSaved(saved config.File, popupDefault bool) choice {
 
 func fromForm(form url.Values) choice {
 	c := choice{
-		webhookTyped: strings.TrimSpace(form.Get("webhook")),
-		popup:        form.Get("popup") == "on",
-		places:       map[int]bool{},
-		everywhere:   form.Get("everywhere") == "on",
-		intensity:    strings.TrimSpace(form.Get("min_intensity")),
+		webhookTyped:     strings.TrimSpace(form.Get("webhook")),
+		popup:            form.Get("popup") == "on",
+		places:           map[int]bool{},
+		everywhere:       form.Get("everywhere") == "on",
+		intensity:        strings.TrimSpace(form.Get("min_intensity")),
+		startWithWindows: form.Get("start_with_windows") == "on",
 	}
 	for _, value := range form["location"] {
 		if code, err := strconv.Atoi(value); err == nil {

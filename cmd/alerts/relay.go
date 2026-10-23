@@ -65,13 +65,13 @@ func (r *relay) handle(ctx context.Context, a alert.Alert) error {
 	decision := r.filter.Decide(a)
 	if decision != filter.Send {
 		r.logger.InfoContext(ctx, "alert not sent", "id", a.ID, "kind", a.Kind.String(), "reason", decision.String())
-		r.note(a, false, "Not sent: "+decision.String())
+		r.note(a, web.Activity{Result: "Not sent: " + decision.String(), Elsewhere: decision == filter.DropRegion})
 		return nil
 	}
 	if err := r.sender.Send(ctx, a); err != nil {
 		// The filter already counted it as sent; without this the retry would be dropped as a duplicate.
 		r.filter.Forget(a.ID)
-		r.note(a, false, "Could not send: "+err.Error())
+		r.note(a, web.Activity{Result: "Could not send: " + err.Error()})
 		return fmt.Errorf("send alert %s: %w", a.ID, err)
 	}
 	r.sent.Add(1)
@@ -79,21 +79,21 @@ func (r *relay) handle(ctx context.Context, a alert.Alert) error {
 		r.record(a.ID)
 	}
 	r.logger.InfoContext(ctx, "alert sent", "id", a.ID, "kind", a.Kind.String())
-	r.note(a, true, "Sent")
+	r.note(a, web.Activity{Result: "Sent", Sent: true})
 	return nil
 }
 
-func (r *relay) note(a alert.Alert, sent bool, result string) {
+// note completes outcome, which says what became of the alert, with the alert itself.
+func (r *relay) note(a alert.Alert, outcome web.Activity) {
 	if r.activity == nil {
 		return
 	}
-	when := a.Issued
-	if when.IsZero() {
-		when = clock.System{}.Now()
+	outcome.When = a.Issued
+	if outcome.When.IsZero() {
+		outcome.When = clock.System{}.Now()
 	}
-	r.activity(web.Activity{
-		When: when, Label: a.Kind.Label(), Title: firstLine(a.Text), Text: a.Text, Result: result, Sent: sent,
-	})
+	outcome.Label, outcome.Title, outcome.Text = a.Kind.Label(), firstLine(a.Text), a.Text
+	r.activity(outcome)
 }
 
 // firstLine is the start of a text, short enough for a list.

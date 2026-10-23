@@ -4,17 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 	"github.com/tienduc120/japan-emergency-alerts/internal/jma"
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
@@ -67,9 +72,9 @@ func TestFirstRunOpensTheSettingsPageAndWatchesNothing(t *testing.T) {
 	}
 
 	out := h.stdout.String()
-	if !strings.Contains(opened, "?key=") || !strings.Contains(out, opened) {
+	if opened == "" || !strings.Contains(out, opened) {
 		t.Errorf(
-			"opened %q, stdout:\n%s\nwant the same address, with its key, printed for people whose browser did not open",
+			"opened %q, stdout:\n%s\nwant the same address printed for people whose browser did not open",
 			opened,
 			out,
 		)
@@ -385,11 +390,38 @@ func TestRecentActivityShowsWhatWasSentAndWhatWasNot(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &reply); err != nil || len(reply.Recent) != 2 {
 		t.Fatalf("status %q (%v), want two recent items", body, err)
 	}
-	if reply.Recent[0].Result != "Not sent: outside the watched location" || reply.Recent[1].Result != "Sent" {
-		t.Errorf("recent = %+v, want newest first: not sent (Hokkaido), then sent (Tokyo)", reply.Recent)
+	if reply.Recent[0].Result != "Sent" || reply.Recent[1].Result != "Not sent: outside the watched location" {
+		t.Errorf(
+			"recent = %+v, want sent (Tokyo), then the newer one for elsewhere (Hokkaido) at the end",
+			reply.Recent,
+		)
 	}
 	if reply.Recent[0].Label != "Tsunami warning" {
 		t.Errorf("label = %q, want the kind of alert", reply.Recent[0].Label)
+	}
+	stopped(t, cancel, done)
+}
+
+func TestThePageShowsALightForEachSource(t *testing.T) {
+	t.Parallel()
+	rec := newRecorder(t, nil)
+	w := newWatcher(nil)
+	w.src.status, w.src.health = "Early-warning stream: NOT connected since 2026-10-18 22:00 JST", alert.Down
+	h := newHarness(t, map[string]string{"WEBHOOK_URL": rec.webhook()}, fakeSources(w.src))
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	w.waitForStart(t)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	_, body := page.get("/status.json")
+
+	var reply struct {
+		Sources []web.Source `json:"sources"`
+	}
+	want := []web.Source{{Text: w.src.status, State: alert.Down}}
+	if err := json.Unmarshal([]byte(body), &reply); err != nil || !slices.Equal(reply.Sources, want) {
+		t.Errorf("sources %+v (%v), want %+v", reply.Sources, err, want)
 	}
 	stopped(t, cancel, done)
 }
@@ -542,7 +574,7 @@ func TestASecondCopyOpensTheSettingsPageOfTheFirst(t *testing.T) {
 	}
 	select {
 	case opened := <-second.opened:
-		if opened != address+"&again=1" {
+		if opened != address+"?again=1" {
 			t.Errorf(
 				"opened %q, want the first copy's own settings address %q, marked as a second opening",
 				opened,
@@ -563,16 +595,16 @@ func TestTheSettingsAddressIsForgottenWhenTheProgramStops(t *testing.T) {
 	h := newHarness(t, nil, fakeSources(newWatcher(nil).src))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := h.start(ctx)
-	h.address()
+	address := h.address()
 	kept := config.AddressFilePath(h.env.getenv)
-	if data, err := os.ReadFile(kept); err != nil || !strings.Contains(string(data), "?key=") {
-		t.Fatalf("address file %q (%v), want the settings address while running", data, err)
+	if data, err := os.ReadFile(kept); err != nil || strings.TrimSpace(string(data)) != address {
+		t.Fatalf("address file %q (%v), want the settings address %q while running", data, err, address)
 	}
 
 	stopped(t, cancel, done)
 
 	if _, err := os.Stat(kept); err == nil {
-		t.Error("the address holds the key to the settings page and must not outlive the program")
+		t.Error("the address must not outlive the program, or a second copy would open a page that is gone")
 	}
 }
 
@@ -587,7 +619,7 @@ func TestAnAddressFileThatPointsElsewhereIsNeverOpened(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		config.AddressFilePath(first.env.getenv),
-		[]byte("https://example.com/?key=x\n"),
+		[]byte("https://example.com/\n"),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
@@ -609,6 +641,140 @@ func TestAnAddressFileThatPointsElsewhereIsNeverOpened(t *testing.T) {
 	stopped(t, cancel, done)
 }
 
+var startupBox = regexp.MustCompile(`<input type="checkbox" name="start_with_windows"[^>]*>`)
+
+func popupOnlyForm(startWithWindows bool) url.Values {
+	form := url.Values{"popup": {"on"}, "location": {"13"}, "min_intensity": {"5-"}}
+	if startWithWindows {
+		form.Set("start_with_windows", "on")
+	}
+	return form
+}
+
+func TestSavingWithTheBoxTickedTurnsTheEntryOn(t *testing.T) {
+	t.Parallel()
+	w, entry := newWatcher(nil), &fakeStartup{}
+	h := newHarness(t, nil, fakeSources(w.src))
+	h.onWindows(entry)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, _ := page.post("/save", popupOnlyForm(true))
+	w.waitForStart(t)
+	_, body := page.get("/")
+
+	enabled, disabled := entry.calls()
+	if status != http.StatusSeeOther || !slices.Equal(enabled, []string{fakeExe}) || disabled != 0 {
+		t.Errorf(
+			"status %d, enabled %v, disabled %d times, want the entry pointed at this program once",
+			status,
+			enabled,
+			disabled,
+		)
+	}
+	if !strings.Contains(startupBox.FindString(body), "checked") {
+		t.Errorf("box %q, want it ticked after saving", startupBox.FindString(body))
+	}
+	stopped(t, cancel, done)
+}
+
+func TestSavingWithTheBoxEmptyTurnsTheEntryOff(t *testing.T) {
+	t.Parallel()
+	w, entry := newWatcher(nil), &fakeStartup{on: true, exe: fakeExe}
+	h := newHarness(t, nil, fakeSources(w.src))
+	h.onWindows(entry)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, _ := page.post("/save", popupOnlyForm(false))
+	w.waitForStart(t)
+	_, body := page.get("/")
+
+	if _, disabled := entry.calls(); status != http.StatusSeeOther || disabled != 1 {
+		t.Errorf("status %d, disabled %d times, want the entry removed once", status, disabled)
+	}
+	if box := startupBox.FindString(body); box == "" || strings.Contains(box, "checked") {
+		t.Errorf("box %q, want it offered and unticked", box)
+	}
+	stopped(t, cancel, done)
+}
+
+func TestSavingWithoutChangingTheBoxLeavesTheEntryAlone(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		entry *fakeStartup
+		tick  bool
+	}{
+		"never ticked": {&fakeStartup{}, false},
+		"already on":   {&fakeStartup{on: true, exe: fakeExe}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := newWatcher(nil)
+			h := newHarness(t, nil, fakeSources(w.src))
+			h.onWindows(tc.entry)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := h.start(ctx)
+			page := newBrowser(t, h.address())
+			page.signIn(h.address())
+
+			status, _ := page.post("/save", popupOnlyForm(tc.tick))
+			w.waitForStart(t)
+
+			// A locked-down Run key must not stop people who never use the box from saving.
+			if enabled, disabled := tc.entry.calls(); status != http.StatusSeeOther || len(enabled) != 0 ||
+				disabled != 0 {
+				t.Errorf(
+					"status %d, enabled %v, disabled %d times, want the registry left alone",
+					status,
+					enabled,
+					disabled,
+				)
+			}
+			stopped(t, cancel, done)
+		})
+	}
+}
+
+func TestAnEntryThatCannotBeWrittenIsReportedAndNothingIsSaved(t *testing.T) {
+	t.Parallel()
+	entry := &fakeStartup{enableErr: errors.New("access denied")}
+	h := newHarness(t, nil, fakeSources(newWatcher(nil).src))
+	h.onWindows(entry)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := h.start(ctx)
+	page := newBrowser(t, h.address())
+	page.signIn(h.address())
+
+	status, body := page.post("/save", popupOnlyForm(true))
+
+	if status != http.StatusUnprocessableEntity ||
+		!strings.Contains(body, "start with Windows could not be set: access denied") {
+		t.Errorf("status %d, want the page back saying that starting with Windows could not be set:\n%s", status, body)
+	}
+	if _, err := os.Stat(h.configPath); err == nil {
+		t.Error("nothing may be kept unless every setting passes, the start-with-Windows box included")
+	}
+	stopped(t, cancel, done)
+}
+
+func TestTheSummaryIsAnEnglishLineAndAJapaneseLine(t *testing.T) {
+	t.Parallel()
+	cfg := configFor(t, "https://discord.com/api/webhooks/1/x")
+	place, strength := cfg.Location.String(), cfg.MinIntensity.Japanese()
+
+	got := strings.Split(summary(cfg), "\n")
+
+	want := []string{"Watching " + place + " from intensity " + strength, "監視中：" + place + "・震度" + strength + "以上"}
+	if !slices.Equal(got, want) {
+		t.Errorf("summary lines %q, want %q: the page shows each language on its own line", got, want)
+	}
+}
+
 func TestEveryDecisionIsRecordedForTheActivityList(t *testing.T) {
 	t.Parallel()
 	sender := &fakeSender{failNext: 1}
@@ -623,6 +789,50 @@ func TestEveryDecisionIsRecordedForTheActivityList(t *testing.T) {
 	want := []string{"Could not send: webhook down", "Sent", "Not sent: outside the watched location"}
 	if strings.Join(seen, "|") != strings.Join(want, "|") {
 		t.Errorf("recorded %v, want %v", seen, want)
+	}
+}
+
+func TestWhenTheActivityListIsFullOlderAlertsForElsewhereMakeRoomFirst(t *testing.T) {
+	t.Parallel()
+	var log activityLog
+	for i := range maxActivity + 1 {
+		log.add(web.Activity{Title: "mine " + strconv.Itoa(i)})
+	}
+	for i := range 5 {
+		log.add(web.Activity{Title: "elsewhere " + strconv.Itoa(i), Elsewhere: true})
+	}
+
+	var titles []string
+	for _, a := range log.list() {
+		titles = append(titles, a.Title)
+	}
+
+	want := []string{"elsewhere 4"}
+	for i := maxActivity; i >= 2; i-- {
+		want = append(want, "mine "+strconv.Itoa(i))
+	}
+	if !slices.Equal(titles, want) {
+		t.Errorf("list = %v\nwant %v\nthe newest is always kept, and an older alert for elsewhere makes room before "+
+			"any of mine", titles, want)
+	}
+}
+
+func TestOnlyAnAlertForAPlaceNotWatchedIsMarkedAsElsewhere(t *testing.T) {
+	t.Parallel()
+	var elsewhere []bool
+	r := newRelay(t, &fakeSender{}, &bytes.Buffer{})
+	r.activity = func(a web.Activity) { elsewhere = append(elsewhere, a.Elsewhere) }
+
+	_ = r.handle(t.Context(), tsunamiFor(1, "hokkaido"))
+	_ = r.handle(t.Context(), tsunamiFor(13, "tokyo"))
+	_ = r.handle(t.Context(), tsunamiFor(13, "tokyo"))
+
+	if want := []bool{true, false, false}; !slices.Equal(elsewhere, want) {
+		t.Errorf(
+			"elsewhere = %v, want %v: only the alert outside the watched location, not one sent or already sent",
+			elsewhere,
+			want,
+		)
 	}
 }
 

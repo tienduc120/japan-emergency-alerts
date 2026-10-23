@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,12 +16,12 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
 )
 
 const (
-	key     = "one-time-key"
 	host    = "127.0.0.1:47600"
 	origin  = "http://" + host
 	token   = "very-secret-token"
@@ -38,6 +39,7 @@ type fakeSettings struct {
 	testErr     error
 	popupErr    error
 	saved       []config.File
+	startups    []bool
 	tested      []string
 	popupsShown int
 	quits       int
@@ -62,10 +64,11 @@ func (f *fakeSettings) Snapshot() web.Snapshot {
 	return f.snap
 }
 
-func (f *fakeSettings) Save(_ context.Context, file config.File) error {
+func (f *fakeSettings) Save(_ context.Context, file config.File, startWithWindows bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saved = append(f.saved, file)
+	f.startups = append(f.startups, startWithWindows)
 	return f.saveErr
 }
 
@@ -83,7 +86,7 @@ func (f *fakeSettings) savedFiles() []config.File {
 }
 
 func newHandler(app web.Settings) http.Handler {
-	return web.New(app, web.Options{Key: key, Hosts: []string{host, "localhost:47600"}, Version: "test"})
+	return web.New(app, web.Options{Hosts: []string{host, "localhost:47600"}, Version: "test"})
 }
 
 type response struct {
@@ -97,7 +100,6 @@ func send(
 	h http.Handler,
 	method, path string,
 	form url.Values,
-	cookie *http.Cookie,
 	headers map[string]string,
 ) response {
 	var body *strings.Reader
@@ -110,9 +112,6 @@ func send(
 	req.Host = host
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	}
-	if cookie != nil {
-		req.AddCookie(cookie)
 	}
 	for name, value := range headers {
 		if name == "Host" {
@@ -127,66 +126,38 @@ func send(
 	return response{code: res.StatusCode, body: rec.Body.String(), header: res.Header, result: res}
 }
 
-func login(t *testing.T, h http.Handler) *http.Cookie {
-	t.Helper()
-	res := send(h, http.MethodGet, "/?key="+key, nil, nil, nil)
-	for _, c := range res.result.Cookies() {
-		if c.Value != "" {
-			return c
-		}
-	}
-	t.Fatalf("logging in gave status %d and no cookie", res.code)
-	return nil
-}
-
 func sameOrigin() map[string]string { return map[string]string{"Origin": origin} }
+
+func foreignOrigin() map[string]string { return map[string]string{"Origin": "https://evil.example"} }
 
 func running() web.Snapshot {
 	return web.Snapshot{
 		Saved:   config.File{WebhookURL: webhook, Location: "Tokyo,Kanagawa", MinIntensity: "6-"},
 		Running: true,
 		Summary: "Watching Tokyo, Kanagawa (earthquake reports from 5弱)",
-		Sources: []string{"JMA feeds: OK, last read in full less than a minute ago", "Early-warning stream: connected"},
+		Sources: []web.Source{
+			{Text: "JMA feeds: OK, last read in full less than a minute ago", State: alert.Up},
+			{Text: "Early-warning stream: connected", State: alert.Up},
+		},
 	}
 }
 
-func TestWithoutTheKeyNothingIsShown(t *testing.T) {
+func TestThePageOpensFromItsPlainAddress(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
 
-	for _, path := range []string{"/", "/status.json", "/?key=wrong"} {
-		res := send(h, http.MethodGet, path, nil, nil, nil)
+	page := send(h, http.MethodGet, "/", nil, nil)
+	status := send(h, http.MethodGet, "/status.json", nil, nil)
 
-		if res.code != http.StatusForbidden {
-			t.Errorf("GET %s = %d, want 403", path, res.code)
-		}
-		if strings.Contains(res.body, "Tokyo") || strings.Contains(res.body, token) {
-			t.Errorf("GET %s leaked settings:\n%s", path, res.body)
-		}
+	// The maintainer chose quick access by address over a key, as the program is mostly used on a personal computer.
+	if page.code != http.StatusOK || !strings.Contains(page.body, "Save and start") {
+		t.Errorf("GET / = %d, want the settings page with no key or cookie", page.code)
 	}
-	if res := send(h, http.MethodGet, "/", nil, nil, nil); !strings.Contains(res.body, "window") {
-		t.Errorf("the refusal must tell the user where to find the address:\n%s", res.body)
+	var reply struct {
+		Running bool `json:"running"`
 	}
-}
-
-func TestTheKeyIsExchangedForACookieAndRemovedFromTheAddress(t *testing.T) {
-	t.Parallel()
-	h := newHandler(&fakeSettings{snap: running()})
-
-	res := send(h, http.MethodGet, "/?key="+key, nil, nil, nil)
-
-	if res.code != http.StatusSeeOther || res.header.Get("Location") != "/" {
-		t.Fatalf("status %d, Location %q, want a redirect to /", res.code, res.header.Get("Location"))
-	}
-	cookies := res.result.Cookies()
-	if len(cookies) != 1 || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteStrictMode {
-		t.Errorf(
-			"cookies = %v, want one HttpOnly SameSite=Strict cookie: other sites must not be able to send it",
-			cookies,
-		)
-	}
-	if page := send(h, http.MethodGet, "/", nil, cookies[0], nil); page.code != http.StatusOK {
-		t.Errorf("the page with the cookie = %d, want 200", page.code)
+	if status.code != http.StatusOK || json.Unmarshal([]byte(status.body), &reply) != nil || !reply.Running {
+		t.Errorf("GET /status.json = %d %q, want the live status with no key or cookie", status.code, status.body)
 	}
 }
 
@@ -195,10 +166,10 @@ func TestEveryAnswerNamesTheProgramSoASecondCopyCanRecognizeIt(t *testing.T) {
 	h := newHandler(&fakeSettings{snap: running()})
 
 	for name, res := range map[string]response{
-		"no key":     send(h, http.MethodGet, "/", nil, nil, nil),
-		"favicon":    send(h, http.MethodGet, "/favicon.ico", nil, nil, nil),
-		"wrong host": send(h, http.MethodGet, "/", nil, nil, map[string]string{"Host": "evil.example"}),
-		"signed in":  send(h, http.MethodGet, "/", nil, login(t, h), nil),
+		"the page":   send(h, http.MethodGet, "/", nil, nil),
+		"favicon":    send(h, http.MethodGet, "/favicon.ico", nil, nil),
+		"wrong host": send(h, http.MethodGet, "/", nil, map[string]string{"Host": "evil.example"}),
+		"signed in":  send(h, http.MethodGet, "/", nil, nil),
 	} {
 		if got := res.header.Get("Server"); got != "japan-emergency-alerts" {
 			t.Errorf("%s: Server = %q, want the program's name, which a second copy looks for", name, got)
@@ -209,9 +180,8 @@ func TestEveryAnswerNamesTheProgramSoASecondCopyCanRecognizeIt(t *testing.T) {
 func TestAnotherHostNameIsRefusedAgainstDNSRebinding(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, map[string]string{"Host": "evil.example:47600"})
+	res := send(h, http.MethodGet, "/", nil, map[string]string{"Host": "evil.example:47600"})
 
 	if res.code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403: a web page must not reach this server under another name", res.code)
@@ -221,9 +191,8 @@ func TestAnotherHostNameIsRefusedAgainstDNSRebinding(t *testing.T) {
 func TestThePageIsBilingualAndOffersEveryPrefectureAsAChecklist(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: web.Snapshot{}})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	for _, want := range []string{
 		"Where should alerts go?", "通知先", "Where are you?", "現在地", "Whole Japan", "日本全国",
@@ -243,9 +212,8 @@ func TestThePageIsBilingualAndOffersEveryPrefectureAsAChecklist(t *testing.T) {
 func TestTheSavedSettingsArePreselected(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	checked := regexp.MustCompile(`name="location" value="(\d+)" checked`).FindAllStringSubmatch(res.body, -1)
 	var codes []string
@@ -263,9 +231,8 @@ func TestTheSavedSettingsArePreselected(t *testing.T) {
 func TestWithNothingSavedTokyoAndFiveLowerAreTheDefaults(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: web.Snapshot{}})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !regexp.MustCompile(`name="location" value="13" checked`).MatchString(res.body) ||
 		!regexp.MustCompile(`value="5-" selected`).MatchString(res.body) {
@@ -278,9 +245,8 @@ func TestWholeJapanIsPreselectedWhenSaved(t *testing.T) {
 	snap := running()
 	snap.Saved.Location = "all"
 	h := newHandler(&fakeSettings{snap: snap})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !regexp.MustCompile(`name="everywhere"[^>]* checked`).MatchString(res.body) {
 		t.Error("Whole Japan should be checked")
@@ -290,10 +256,9 @@ func TestWholeJapanIsPreselectedWhenSaved(t *testing.T) {
 func TestTheSavedWebhookFillsTheBoxSoItCanBeChangedOrCleared(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	page := send(h, http.MethodGet, "/", nil, cookie, nil)
-	status := send(h, http.MethodGet, "/status.json", nil, cookie, nil)
+	page := send(h, http.MethodGet, "/", nil, nil)
+	status := send(h, http.MethodGet, "/status.json", nil, nil)
 
 	if !regexp.MustCompile(`id="webhook"[^>]*value="` + regexp.QuoteMeta(webhook) + `"`).MatchString(page.body) {
 		t.Errorf("the box must hold the saved address, or clearing it means nothing:\n%s", page.body)
@@ -310,14 +275,13 @@ func TestSavingSendsTheChosenSettingsAndWelcomesTheUserBack(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 	form := url.Values{
 		"webhook":       {"https://discord.com/api/webhooks/9/new"},
 		"location":      {"13", "14", "27"},
 		"min_intensity": {"5-"},
 	}
 
-	res := send(h, http.MethodPost, "/save", form, cookie, sameOrigin())
+	res := send(h, http.MethodPost, "/save", form, sameOrigin())
 
 	if res.code != http.StatusSeeOther || !strings.HasPrefix(res.header.Get("Location"), "/?saved=1") {
 		t.Fatalf("status %d, Location %q, want a redirect back to the page", res.code, res.header.Get("Location"))
@@ -336,16 +300,14 @@ func TestAnEmptiedWebhookBoxRemovesTheSavedAddress(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 
 	send(
 		h,
 		http.MethodPost,
 		"/save",
 		url.Values{"webhook": {"  "}, "location": {"13"}, "min_intensity": {"4"}},
-		cookie,
-		sameOrigin(),
-	)
+
+		sameOrigin())
 
 	got := app.savedFiles()
 	if len(got) != 1 || got[0].WebhookURL != "" {
@@ -367,11 +329,10 @@ func TestSavingWorksFromTheOriginABrowserReallySends(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
-	page := send(h, http.MethodGet, "/", nil, cookie, nil)
+	page := send(h, http.MethodGet, "/", nil, nil)
 	form := url.Values{"webhook": {webhook}, "location": {"13"}, "min_intensity": {"5-"}}
 
-	res := send(h, http.MethodPost, "/save", form, cookie,
+	res := send(h, http.MethodPost, "/save", form,
 		map[string]string{"Origin": browserFormOrigin(page.header.Get("Referrer-Policy"))})
 
 	if res.code != http.StatusSeeOther || len(app.savedFiles()) != 1 {
@@ -394,9 +355,8 @@ func rows(body string) []string {
 func TestEachTestButtonSitsAtTheEndOfTheLineOfItsField(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	together := func(field, button string) bool {
 		for _, row := range rows(res.body) {
@@ -418,9 +378,8 @@ func TestEachTestButtonSitsAtTheEndOfTheLineOfItsField(t *testing.T) {
 func TestTheTestButtonsAreSmallAndThePopupBoxIsBigger(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	for _, id := range []string{"test", "test-popup"} {
 		tag := regexp.MustCompile(`<button[^>]*id="` + id + `"[^>]*>`).FindString(res.body)
@@ -437,10 +396,9 @@ func TestWholeJapanOverridesTheChecklist(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 
 	send(h, http.MethodPost, "/save",
-		url.Values{"everywhere": {"on"}, "location": {"13", "14"}, "min_intensity": {"5-"}}, cookie, sameOrigin())
+		url.Values{"everywhere": {"on"}, "location": {"13", "14"}, "min_intensity": {"5-"}}, sameOrigin())
 
 	if got := app.savedFiles(); len(got) != 1 || got[0].Location != "all" {
 		t.Errorf("saved %+v, want location all", got)
@@ -454,10 +412,9 @@ func TestAProblemIsShownBesideItsSettingWithTheUsersChoicesKept(t *testing.T) {
 		saveErr: errors.Join(config.FieldError{Field: "WEBHOOK_URL", Problem: "must be an http or https URL"}),
 	}
 	h := newHandler(app)
-	cookie := login(t, h)
 
 	res := send(h, http.MethodPost, "/save",
-		url.Values{"webhook": {"not-a-url"}, "location": {"27"}, "min_intensity": {"6+"}}, cookie, sameOrigin())
+		url.Values{"webhook": {"not-a-url"}, "location": {"27"}, "min_intensity": {"6+"}}, sameOrigin())
 
 	if res.code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422: nothing was saved", res.code)
@@ -477,33 +434,30 @@ func TestAProblemIsShownBesideItsSettingWithTheUsersChoicesKept(t *testing.T) {
 	}
 }
 
-func TestSavingNeedsTheCookieAndTheRightOrigin(t *testing.T) {
+func TestSavingNeedsTheRightOrigin(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 	form := url.Values{"webhook": {webhook}, "location": {"13"}, "min_intensity": {"5-"}}
 
 	cases := map[string]response{
-		"no cookie":   send(h, http.MethodPost, "/save", form, nil, sameOrigin()),
-		"no origin":   send(h, http.MethodPost, "/save", form, cookie, nil),
-		"null origin": send(h, http.MethodPost, "/save", form, cookie, map[string]string{"Origin": "null"}),
+		"no origin":   send(h, http.MethodPost, "/save", form, nil),
+		"null origin": send(h, http.MethodPost, "/save", form, map[string]string{"Origin": "null"}),
 		"foreign origin": send(
 			h,
 			http.MethodPost,
 			"/save",
 			form,
-			cookie,
-			map[string]string{"Origin": "https://evil.example"},
-		),
+
+			foreignOrigin()),
+
 		"foreign host": send(
 			h,
 			http.MethodPost,
 			"/save",
 			form,
-			cookie,
-			map[string]string{"Origin": origin, "Host": "evil.example"},
-		),
+
+			map[string]string{"Origin": origin, "Host": "evil.example"}),
 	}
 	for name, res := range cases {
 		if res.code != http.StatusForbidden {
@@ -519,18 +473,17 @@ func TestTheTestButtonSendsThroughTheProgramAndReportsTheOutcome(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 
 	ok := send(
 		h,
 		http.MethodPost,
 		"/test",
 		url.Values{"webhook": {"https://discord.com/api/webhooks/9/new"}},
-		cookie,
-		sameOrigin(),
-	)
+
+		sameOrigin())
+
 	app.testErr = errors.New("webhook answered 404 Not Found")
-	failed := send(h, http.MethodPost, "/test", url.Values{"webhook": {""}}, cookie, sameOrigin())
+	failed := send(h, http.MethodPost, "/test", url.Values{"webhook": {""}}, sameOrigin())
 
 	var good, bad struct {
 		OK      bool   `json:"ok"`
@@ -552,7 +505,8 @@ func TestTestingNeedsTheSameProtectionAsSaving(t *testing.T) {
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
 
-	res := send(h, http.MethodPost, "/test", url.Values{"webhook": {webhook}}, nil, sameOrigin())
+	res := send(
+		h, http.MethodPost, "/test", url.Values{"webhook": {webhook}}, foreignOrigin())
 
 	if res.code != http.StatusForbidden || len(app.tested) != 0 {
 		t.Errorf("status %d, tested %v, want a refusal that sends nothing", res.code, app.tested)
@@ -567,14 +521,13 @@ func TestStatusIsAvailableAsJSONForTheLiveUpdate(t *testing.T) {
 		Title: "【震源・震度情報】", Result: "Not sent: outside the watched location",
 	}}
 	h := newHandler(&fakeSettings{snap: snap})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/status.json", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/status.json", nil, nil)
 
 	var got struct {
-		Running bool     `json:"running"`
-		Summary string   `json:"summary"`
-		Sources []string `json:"sources"`
+		Running bool         `json:"running"`
+		Summary string       `json:"summary"`
+		Sources []web.Source `json:"sources"`
 		Recent  []struct {
 			When   string `json:"when"`
 			Label  string `json:"label"`
@@ -586,6 +539,9 @@ func TestStatusIsAvailableAsJSONForTheLiveUpdate(t *testing.T) {
 	}
 	if !got.Running || !strings.Contains(got.Summary, "Tokyo") || len(got.Sources) != 2 || len(got.Recent) != 1 {
 		t.Errorf("status = %+v, want the running summary, two sources and one recent item", got)
+	}
+	if !slices.Equal(got.Sources, snap.Sources) {
+		t.Errorf("sources = %+v, want %+v: each line with the state of its light", got.Sources, snap.Sources)
 	}
 	if got.Recent[0].When != "2026-10-18 12:00 JST" || !strings.Contains(got.Recent[0].Result, "outside") {
 		t.Errorf("recent = %+v, want the time in JST and the reason", got.Recent[0])
@@ -605,9 +561,8 @@ func TestRecentActivityIsEscapedBecauseItComesFromTheOutsideWorld(t *testing.T) 
 		},
 	}
 	h := newHandler(&fakeSettings{snap: snap})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if strings.Contains(res.body, "<script>alert(1)") || strings.Contains(res.body, "<img src=x") {
 		t.Errorf("activity text was not escaped:\n%s", res.body)
@@ -621,9 +576,8 @@ func TestNotesTheUserShouldKnowAreShown(t *testing.T) {
 	t.Parallel()
 	snap := web.Snapshot{Notes: []string{"LOCATION is set in the environment and overrides this page."}}
 	h := newHandler(&fakeSettings{snap: snap})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !strings.Contains(res.body, "overrides this page") {
 		t.Errorf("the note is missing:\n%s", res.body)
@@ -636,9 +590,8 @@ func TestNotesTheUserShouldKnowAreShown(t *testing.T) {
 func TestTheBrowserIsToldNotToKeepOrEmbedOrSniffThePage(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	csp := res.header.Get("Content-Security-Policy")
 	for _, want := range []string{"default-src 'none'", "frame-ancestors 'none'", "form-action 'self'", "script-src 'nonce-"} {
@@ -660,9 +613,8 @@ func popupBox(body string) string {
 func TestThePageOffersAPopupBesideTheWebhookInBothLanguages(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	for _, want := range []string{"Show a pop-up window on this computer", "このパソコンにポップアップを表示"} {
 		if !strings.Contains(res.body, want) {
@@ -684,9 +636,8 @@ func TestThePageOffersAPopupBesideTheWebhookInBothLanguages(t *testing.T) {
 func TestAFieldAndItsTestButtonNeverSplitAcrossLines(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !regexp.MustCompile(`\.row\s*\{[^}]*flex-wrap:\s*nowrap`).MatchString(res.body) {
 		t.Error("a row must not wrap, or the test button drops under its field on a narrow window")
@@ -699,9 +650,8 @@ func TestAFieldAndItsTestButtonNeverSplitAcrossLines(t *testing.T) {
 func TestTheSaveButtonShowsItsJapaneseAsClearlyAsItsEnglish(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !regexp.MustCompile(`button\.primary\s+\.ja\s*\{[^}]*color:\s*inherit`).MatchString(res.body) {
 		t.Error("the grey Japanese text is hard to read on the red button; it must take the button's colour")
@@ -711,9 +661,8 @@ func TestTheSaveButtonShowsItsJapaneseAsClearlyAsItsEnglish(t *testing.T) {
 func TestTheDiscordStepsAreTuckedAwayUntilAskedFor(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !regexp.MustCompile(`(?s)<details[^>]*>\s*<summary>[^<]*Discord.*?Copy Webhook URL.*?</details>`).
 		MatchString(res.body) {
@@ -724,9 +673,8 @@ func TestTheDiscordStepsAreTuckedAwayUntilAskedFor(t *testing.T) {
 func TestTheStopButtonIsAtTheTopSoNobodyHasToScrollForIt(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	stop, save := strings.Index(res.body, `action="/quit"`), strings.Index(res.body, `action="/save"`)
 	if stop < 0 || save < 0 || stop > save {
@@ -738,7 +686,7 @@ func TestTheStopButtonCannotBePressedWhileNothingIsRunning(t *testing.T) {
 	t.Parallel()
 	stopTag := func(snap web.Snapshot) string {
 		h := newHandler(&fakeSettings{snap: snap})
-		res := send(h, http.MethodGet, "/", nil, login(t, h), nil)
+		res := send(h, http.MethodGet, "/", nil, nil)
 		return regexp.MustCompile(`<button[^>]*id="stop"[^>]*>`).FindString(res.body)
 	}
 
@@ -751,9 +699,356 @@ func TestTheStopButtonCannotBePressedWhileNothingIsRunning(t *testing.T) {
 		t.Errorf("while watching the button is %q, want it enabled", watching)
 	}
 	h := newHandler(&fakeSettings{snap: running()})
-	page := send(h, http.MethodGet, "/", nil, login(t, h), nil)
+	page := send(h, http.MethodGet, "/", nil, nil)
 	if !strings.Contains(page.body, "$('stop').disabled") {
 		t.Error("the live update must also enable and disable the button, or it would go stale after saving")
+	}
+}
+
+func pageFor(t *testing.T, snap web.Snapshot, path string) string {
+	t.Helper()
+	h := newHandler(&fakeSettings{snap: snap})
+	return send(h, http.MethodGet, path, nil, nil).body
+}
+
+func buttonTag(body, id string) string {
+	return regexp.MustCompile(`<button[^>]*id="` + id + `"[^>]*>`).FindString(body)
+}
+
+func TestTheVersionIsShownBesideTheTitle(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	if !regexp.MustCompile(`(?s)<h1>.*?<span class="version">test</span>.*?</h1>`).MatchString(body) {
+		t.Error("the version belongs beside the title, where someone checking which build they run sees it at once")
+	}
+}
+
+func startupBox(body string) string {
+	return regexp.MustCompile(`<input type="checkbox" name="start_with_windows"[^>]*>`).FindString(body)
+}
+
+func TestTheStartWithWindowsBoxIsOfferedOnlyWhereItWorks(t *testing.T) {
+	t.Parallel()
+	offeredOff, offeredOn := running(), running()
+	offeredOff.StartupOffered = true
+	offeredOn.StartupOffered, offeredOn.StartupOn = true, true
+
+	elsewhere, off, on := pageFor(t, running(), "/"), pageFor(t, offeredOff, "/"), pageFor(t, offeredOn, "/")
+
+	if startupBox(elsewhere) != "" {
+		t.Error("macOS and Linux have no start-with-Windows entry, so the box must not be there")
+	}
+	if box := startupBox(
+		off,
+	); box == "" || strings.Contains(box, "checked") ||
+		!strings.Contains(off, "Windowsのサインイン時に起動") {
+		t.Errorf("box %q, want it offered, unticked by default, in both languages", box)
+	}
+	if !strings.Contains(startupBox(on), "checked") {
+		t.Error("the box must show the entry that is there")
+	}
+	if strings.Contains(off, "notification") {
+		t.Error("a start with Windows shows nothing, so the page must not promise a notification")
+	}
+}
+
+func TestSavingPassesTheStartWithWindowsBox(t *testing.T) {
+	t.Parallel()
+	snap := web.Snapshot{StartupOffered: true}
+	app := &fakeSettings{snap: snap}
+	h := newHandler(app)
+	form := url.Values{"location": {"13"}, "min_intensity": {"5-"}, "popup": {"on"}}
+	ticked := url.Values{"location": {"13"}, "min_intensity": {"5-"}, "popup": {"on"}, "start_with_windows": {"on"}}
+
+	send(h, http.MethodPost, "/save", ticked, sameOrigin())
+	send(h, http.MethodPost, "/save", form, sameOrigin())
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if len(app.startups) != 2 || !app.startups[0] || app.startups[1] {
+		t.Errorf("saves passed %v, want ticked then not", app.startups)
+	}
+}
+
+func TestARefusedSaveKeepsTheBoxAsTyped(t *testing.T) {
+	t.Parallel()
+	app := &fakeSettings{
+		snap:    web.Snapshot{StartupOffered: true},
+		saveErr: errors.New("start with Windows: access denied"),
+	}
+	h := newHandler(app)
+
+	res := send(
+		h,
+		http.MethodPost,
+		"/save",
+		url.Values{
+			"location":           {"13"},
+			"min_intensity":      {"5-"},
+			"popup":              {"on"},
+			"start_with_windows": {"on"},
+		},
+		sameOrigin(),
+	)
+
+	if !strings.Contains(startupBox(res.body), "checked") || !strings.Contains(res.body, "access denied") {
+		t.Errorf("box %q, want it still ticked beside the reason the save was refused", startupBox(res.body))
+	}
+}
+
+func TestSaveAndStartSitsAboveStopAtTheTop(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, web.Snapshot{}, "/")
+
+	stop, start := strings.Index(body, `id="stop"`), strings.Index(body, `id="start"`)
+	form := strings.Index(body, `action="/save"`)
+	if start < 0 || stop < start || form < stop {
+		t.Errorf(
+			"Save and start at %d, Stop at %d, the settings at %d, want Save and start first, then Stop, both above the settings",
+			start,
+			stop,
+			form,
+		)
+	}
+	if !regexp.MustCompile(`\.actions\s*\{[^}]*flex-direction:\s*column`).MatchString(body) {
+		t.Error("on a wide window the two buttons stack, so the status beside them keeps most of the row")
+	}
+	tag := regexp.MustCompile(`(?s)<button[^>]*id="start"[^>]*>.*?</button>`).FindString(body)
+	if !strings.Contains(tag, `type="submit"`) || !strings.Contains(tag, `form="settings"`) ||
+		!strings.Contains(tag, "保存して開始") {
+		t.Errorf(
+			"the start button is %q, want a bilingual button that submits the settings form it sits outside of",
+			tag,
+		)
+	}
+	if !regexp.MustCompile(`<form[^>]*action="/save"[^>]*id="settings"`).MatchString(body) {
+		t.Error(`the settings form needs id="settings", the form the start button names`)
+	}
+	if n := strings.Count(body, "Save and start"); n != 1 {
+		t.Errorf("%d Save and start buttons, want 1: the one at the bottom moved to the top", n)
+	}
+}
+
+func TestOnlyTheButtonThatFitsWhatIsHappeningCanBePressed(t *testing.T) {
+	t.Parallel()
+
+	idle, watching := pageFor(t, web.Snapshot{}, "/"), pageFor(t, running(), "/")
+
+	idleStart, idleStop := buttonTag(idle, "start"), buttonTag(idle, "stop")
+	if idleStart == "" || strings.Contains(idleStart, "disabled") || !strings.Contains(idleStop, " disabled") {
+		t.Errorf("with nothing running start is %q and stop %q, want only start enabled", idleStart, idleStop)
+	}
+	runStart, runStop := buttonTag(watching, "start"), buttonTag(watching, "stop")
+	if !strings.Contains(runStart, " disabled") || runStop == "" || strings.Contains(runStop, "disabled") {
+		t.Errorf("while watching start is %q and stop %q, want only stop enabled", runStart, runStop)
+	}
+	if !strings.Contains(watching, "$('start').disabled") {
+		t.Error("the live update must also enable and disable the start button, or it would go stale after saving")
+	}
+}
+
+func TestAFailedSaveWhileWatchingLeavesStartPressableToTryAgain(t *testing.T) {
+	t.Parallel()
+	app := &fakeSettings{snap: running(), saveErr: errors.New("write config.json: the file is in use")}
+	h := newHandler(app)
+
+	res := send(h, http.MethodPost, "/save",
+		url.Values{"webhook": {webhook}, "location": {"13"}, "min_intensity": {"5-"}}, sameOrigin())
+
+	// A file held by another program is fixed by trying again with the same values, which a locked button would forbid.
+	tag := buttonTag(res.body, "start")
+	if res.code != http.StatusUnprocessableEntity || tag == "" || strings.Contains(tag, "disabled") {
+		t.Errorf("status %d, start button %q, want the refusal with the button enabled", res.code, tag)
+	}
+	if !strings.Contains(res.body, "document.querySelector('.errors') ? null : snapshot()") {
+		t.Error("the script must not lock the button again on its next refresh while the refusal is shown")
+	}
+}
+
+func TestWhileWatchingStartUnlocksOnceASettingIsChanged(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	// Stop ends the program, and opening it again watches at once, so a locked start button would lock the settings for good.
+	for _, want := range []string{"form.addEventListener('input', lock)", "form.addEventListener('change', lock)", "snapshot() === saved"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page script lacks %q: while watching, changing a setting must unlock Save and start", want)
+		}
+	}
+}
+
+func TestTheAlreadyRunningNoteIsAFullWidthLineUnderTheRow(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/?again=1")
+
+	top := regexp.MustCompile(`(?s)<header class="top">.*?</header>`).FindString(body)
+	for _, want := range []string{`id="summary"`, `id="stop"`, `id="start"`} {
+		if !strings.Contains(top, want) {
+			t.Errorf("the top row lacks %q:\n%s", want, top)
+		}
+	}
+	// Squeezed beside the buttons it wrapped into a tall block; it is a one-time note, not part of the status.
+	_, under, found := strings.Cut(body, "</header>")
+	if strings.Contains(top, "already running") || !found || !strings.Contains(under, "already running") {
+		t.Error("the already-running note belongs on its own line just under the row, not inside it")
+	}
+}
+
+func TestTheSummaryKeepsItsTwoLines(t *testing.T) {
+	t.Parallel()
+
+	idle, watching := pageFor(t, web.Snapshot{}, "/"), pageFor(t, running(), "/")
+
+	if !regexp.MustCompile(`#summary\s*\{[^}]*white-space:\s*pre-line`).MatchString(watching) {
+		t.Error("the summary's English and Japanese lines must show as two lines")
+	}
+	if !strings.Contains(idle, "Not set up yet\nまだ設定されていません") ||
+		!strings.Contains(idle, `'Not set up yet\nまだ設定されていません'`) {
+		t.Error("the page and its live update must both say not set up yet on two lines")
+	}
+}
+
+func TestTheTwoButtonsShareTheRowOnAPhone(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	// Side by side and unwrapped, the two bilingual labels are wider than a 375-pixel phone.
+	if !regexp.MustCompile(`(?s)@media \(max-width: [^)]+\)\s*\{.*?\.actions button\s*\{[^}]*white-space:\s*normal`).
+		MatchString(body) {
+		t.Error(
+			"on a narrow screen the buttons must split the row and let their words wrap, or the page scrolls sideways",
+		)
+	}
+}
+
+func TestTheStartAndStopButtonsAnswerThePointerGently(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	for _, rule := range []string{`button\.primary`, `button\.stop`} {
+		if !regexp.MustCompile(rule + `\s*\{[^}]*transition:`).MatchString(body) {
+			t.Errorf("%s has no transition: a hover must ease in, not jump", rule)
+		}
+	}
+	if !regexp.MustCompile(`:not\(:disabled\):hover[^{]*\{[^}]*transform:`).MatchString(body) {
+		t.Error("a button that can be pressed should lift a little under the pointer, and a disabled one not at all")
+	}
+	if !regexp.MustCompile(`(?s)@media \(prefers-reduced-motion: reduce\)\s*\{.*?transform:\s*none`).MatchString(body) {
+		t.Error("people who ask their system for less motion must not get the lift")
+	}
+}
+
+func TestEachFeedHasALightForWhetherItIsWorking(t *testing.T) {
+	t.Parallel()
+	snap := running()
+	snap.Sources = []web.Source{
+		{Text: "JMA feeds: OK, last read in full less than a minute ago", State: alert.Up},
+		{Text: "Early-warning stream: NOT connected since 2026-10-18 22:00 JST", State: alert.Down},
+	}
+
+	body := pageFor(t, snap, "/")
+
+	for _, want := range []string{
+		`<li class="up"><span class="light" aria-hidden="true"></span>JMA feeds: OK`,
+		`<li class="down"><span class="light" aria-hidden="true"></span>Early-warning stream: NOT connected`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	if !regexp.MustCompile(`\.up \.light\s*\{[^}]*var\(--ok\)`).MatchString(body) ||
+		!regexp.MustCompile(`\.down \.light\s*\{[^}]*var\(--accent\)`).MatchString(body) {
+		t.Error("the light must be green for a working feed and red for one that is not")
+	}
+	if regexp.MustCompile(`\.light\s*\{[^}]*(box-shadow|border:)`).MatchString(body) {
+		t.Error("the maintainer wants the lights as plain dots, with no ring around them")
+	}
+	if !strings.Contains(body, "li.className = source.state") {
+		t.Error("the live update must recolour the lights too")
+	}
+}
+
+func TestTheFeedsComeUnderTheButtonsAndRecentActivityBeforeTheSettings(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	start, feeds := strings.Index(body, `id="start"`), strings.Index(body, `id="sources"`)
+	recent, form := strings.Index(body, "Recent activity"), strings.Index(body, `action="/save"`)
+	if start < 0 || feeds < start || recent < feeds || form < recent {
+		t.Errorf("buttons at %d, feeds at %d, recent activity at %d, settings at %d, want them in that order",
+			start, feeds, recent, form)
+	}
+}
+
+func TestAlertsForPlacesNotWatchedAreListedLast(t *testing.T) {
+	t.Parallel()
+	at := func(hour int) time.Time { return time.Date(2026, time.October, 18, hour, 0, 0, 0, time.UTC) }
+	snap := running()
+	snap.Recent = []web.Activity{
+		{
+			When:      at(5),
+			Label:     "Earthquake report",
+			Title:     "Quake in Hokkaido",
+			Result:    "Not sent: outside the watched location",
+			Elsewhere: true,
+		},
+		{
+			When:   at(4),
+			Label:  "Earthquake report",
+			Title:  "Small one in Tokyo",
+			Result: "Not sent: below the intensity threshold",
+		},
+		{
+			When:      at(3),
+			Label:     "Earthquake report",
+			Title:     "Quake in Okinawa",
+			Result:    "Not sent: outside the watched location",
+			Elsewhere: true,
+		},
+		{When: at(2), Label: "Tsunami warning", Title: "Tsunami in Tokyo", Result: "Sent", Sent: true},
+	}
+	want := []string{"Small one in Tokyo", "Tsunami in Tokyo", "Quake in Hokkaido", "Quake in Okinawa"}
+
+	page, status := pageFor(t, snap, "/"), pageFor(t, snap, "/status.json")
+
+	shown := regexp.MustCompile(strings.Join(want, "|")).FindAllString(page, -1)
+	var reply struct {
+		Recent []struct {
+			Title string `json:"title"`
+		} `json:"recent"`
+	}
+	if err := json.Unmarshal([]byte(status), &reply); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, status)
+	}
+	var listed []string
+	for _, r := range reply.Recent {
+		listed = append(listed, r.Title)
+	}
+	if !slices.Equal(shown, want) || !slices.Equal(listed, want) {
+		t.Errorf(
+			"page %v, live update %v, want %v: newest first, with alerts for other places at the end",
+			shown,
+			listed,
+			want,
+		)
+	}
+}
+
+func TestAnOpenedActivityStaysOpenWhenThePageRefreshes(t *testing.T) {
+	t.Parallel()
+
+	body := pageFor(t, running(), "/")
+
+	if !strings.Contains(body, "addEventListener('toggle'") || !strings.Contains(body, ".open = opened.has(") {
+		t.Error("the live update rebuilds the list every few seconds; it must remember which items were open")
 	}
 }
 
@@ -761,16 +1056,9 @@ func TestOpeningTheProgramAgainSaysItIsAlreadyRunning(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
 
-	again := send(h, http.MethodGet, "/?key="+key+"&again=1", nil, nil, nil)
-	first := send(h, http.MethodGet, "/?key="+key, nil, nil, nil)
-	cookie := login(t, h)
-	withNote := send(h, http.MethodGet, "/?again=1", nil, cookie, nil)
-	without := send(h, http.MethodGet, "/", nil, cookie, nil)
+	withNote := send(h, http.MethodGet, "/?again=1", nil, nil)
+	without := send(h, http.MethodGet, "/", nil, nil)
 
-	if again.header.Get("Location") != "/?again=1" || first.header.Get("Location") != "/" {
-		t.Errorf("redirects %q and %q, want the marker kept only when the second copy asked for it",
-			again.header.Get("Location"), first.header.Get("Location"))
-	}
 	if !strings.Contains(withNote.body, "already running") || !strings.Contains(withNote.body, "すでに起動") {
 		t.Errorf("the page lacks a note, in both languages, that the program was already running:\n%s", withNote.body)
 	}
@@ -779,34 +1067,32 @@ func TestOpeningTheProgramAgainSaysItIsAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestThePageCanStopTheProgramAndOnlyForSomeoneSignedInFromThisPage(t *testing.T) {
+func TestThePageCanStopTheProgramButOnlyFromItself(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 
-	page := send(h, http.MethodGet, "/", nil, cookie, nil)
-	noCookie := send(h, http.MethodPost, "/quit", url.Values{}, nil, sameOrigin())
+	page := send(h, http.MethodGet, "/", nil, nil)
 	foreign := send(
 		h,
 		http.MethodPost,
 		"/quit",
 		url.Values{},
-		cookie,
-		map[string]string{"Origin": "https://evil.example"},
-	)
-	get := send(h, http.MethodGet, "/quit", nil, cookie, nil)
+
+		foreignOrigin())
+
+	get := send(h, http.MethodGet, "/quit", nil, nil)
 	if app.quits != 0 {
 		t.Fatalf("%d stops after refused requests, want none", app.quits)
 	}
-	ok := send(h, http.MethodPost, "/quit", url.Values{}, cookie, sameOrigin())
+	ok := send(h, http.MethodPost, "/quit", url.Values{}, sameOrigin())
 
 	if !strings.Contains(page.body, `action="/quit"`) || !strings.Contains(page.body, "Stop running") ||
 		!strings.Contains(page.body, "停止") {
 		t.Error("the page needs a Stop button, in both languages: with no window there is no other way to stop it")
 	}
-	if noCookie.code != http.StatusForbidden || foreign.code != http.StatusForbidden || get.code == http.StatusOK {
-		t.Errorf("no cookie %d, foreign origin %d, GET %d, want all refused", noCookie.code, foreign.code, get.code)
+	if foreign.code != http.StatusForbidden || get.code == http.StatusOK {
+		t.Errorf("foreign origin %d, GET %d, want both refused", foreign.code, get.code)
 	}
 	if ok.code != http.StatusOK || app.quits != 1 || !strings.Contains(ok.body, "停止") {
 		t.Errorf(
@@ -839,9 +1125,8 @@ func TestThePopupBoxFollowsWhatWasSavedAndOtherwiseTheSystemDefault(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			h := newHandler(&fakeSettings{snap: tc.snap})
-			cookie := login(t, h)
 
-			res := send(h, http.MethodGet, "/", nil, cookie, nil)
+			res := send(h, http.MethodGet, "/", nil, nil)
 
 			if got := strings.Contains(popupBox(res.body), " checked"); got != tc.want {
 				t.Errorf("checked = %v, want %v", got, tc.want)
@@ -854,10 +1139,9 @@ func TestSavingWithAPopupAndNoWebhookIsAllowed(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: web.Snapshot{}}
 	h := newHandler(app)
-	cookie := login(t, h)
 
 	res := send(h, http.MethodPost, "/save",
-		url.Values{"popup": {"on"}, "location": {"13"}, "min_intensity": {"5-"}}, cookie, sameOrigin())
+		url.Values{"popup": {"on"}, "location": {"13"}, "min_intensity": {"5-"}}, sameOrigin())
 
 	want := config.File{Location: "Tokyo", MinIntensity: "5-", Popup: true}
 	if got := app.savedFiles(); res.code != http.StatusSeeOther || len(got) != 1 || got[0] != want {
@@ -871,9 +1155,8 @@ func TestLeavingThePopupBoxEmptySavesItAsOff(t *testing.T) {
 	snap.Saved.Popup = true
 	app := &fakeSettings{snap: snap}
 	h := newHandler(app)
-	cookie := login(t, h)
 
-	send(h, http.MethodPost, "/save", url.Values{"location": {"13"}, "min_intensity": {"5-"}}, cookie, sameOrigin())
+	send(h, http.MethodPost, "/save", url.Values{"location": {"13"}, "min_intensity": {"5-"}}, sameOrigin())
 
 	if got := app.savedFiles(); len(got) != 1 || got[0].Popup {
 		t.Errorf("saved %+v, want pop-ups off: an unticked box is a choice", got)
@@ -889,16 +1172,14 @@ func TestNeitherAWebhookNorAPopupIsExplainedInPlainWords(t *testing.T) {
 		},
 	}
 	h := newHandler(app)
-	cookie := login(t, h)
 
 	res := send(
 		h,
 		http.MethodPost,
 		"/save",
 		url.Values{"location": {"13"}, "min_intensity": {"5-"}},
-		cookie,
-		sameOrigin(),
-	)
+
+		sameOrigin())
 
 	if res.code != http.StatusUnprocessableEntity || !strings.Contains(res.body, "turn on the pop-up") {
 		t.Errorf(
@@ -916,12 +1197,11 @@ func TestTheTestPopupButtonShowsAWindowAndReportsTheOutcome(t *testing.T) {
 	t.Parallel()
 	app := &fakeSettings{snap: running()}
 	h := newHandler(app)
-	cookie := login(t, h)
 
-	ok := send(h, http.MethodPost, "/test-popup", url.Values{}, cookie, sameOrigin())
+	ok := send(h, http.MethodPost, "/test-popup", url.Values{}, sameOrigin())
 	app.popupErr = errors.New("no pop-up tool found")
-	failed := send(h, http.MethodPost, "/test-popup", url.Values{}, cookie, sameOrigin())
-	refused := send(h, http.MethodPost, "/test-popup", url.Values{}, nil, sameOrigin())
+	failed := send(h, http.MethodPost, "/test-popup", url.Values{}, sameOrigin())
+	refused := send(h, http.MethodPost, "/test-popup", url.Values{}, foreignOrigin())
 
 	var good, bad struct {
 		OK      bool   `json:"ok"`
@@ -945,9 +1225,8 @@ func TestTheTestPopupButtonShowsAWindowAndReportsTheOutcome(t *testing.T) {
 func TestThePageHasAWhiteBackgroundWhateverTheSystemTheme(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	if !strings.Contains(res.body, "color-scheme: light;") ||
 		!regexp.MustCompile(`background:\s*#fff`).MatchString(res.body) {
@@ -961,9 +1240,8 @@ func TestThePageHasAWhiteBackgroundWhateverTheSystemTheme(t *testing.T) {
 func TestTheEarthquakeStrengthChoiceReadsNaturally(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	res := send(h, http.MethodGet, "/", nil, cookie, nil)
+	res := send(h, http.MethodGet, "/", nil, nil)
 
 	for _, want := range []string{"Minimum earthquake strength", "通知する最小の震度", "Intensity 7 or over", "震度7以上"} {
 		if !strings.Contains(res.body, want) {
@@ -980,13 +1258,12 @@ func TestTheEarthquakeStrengthChoiceReadsNaturally(t *testing.T) {
 func TestTheIconIsServedAndNamedInThePage(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	icon := send(h, http.MethodGet, "/favicon.ico", nil, nil, nil)
-	page := send(h, http.MethodGet, "/", nil, cookie, nil)
+	icon := send(h, http.MethodGet, "/favicon.ico", nil, nil)
+	page := send(h, http.MethodGet, "/", nil, nil)
 
 	if icon.code != http.StatusOK || icon.header.Get("Content-Type") != "image/x-icon" {
-		t.Fatalf("icon: status %d, type %q, want 200 image/x-icon (a browser asks before it has the cookie)",
+		t.Fatalf("icon: status %d, type %q, want 200 image/x-icon",
 			icon.code, icon.header.Get("Content-Type"))
 	}
 	if !strings.HasPrefix(icon.body, "\x00\x00\x01\x00") {
@@ -1004,7 +1281,7 @@ func TestTheIconIsNotServedUnderAnotherHostName(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
 
-	res := send(h, http.MethodGet, "/favicon.ico", nil, nil, map[string]string{"Host": "evil.example"})
+	res := send(h, http.MethodGet, "/favicon.ico", nil, map[string]string{"Host": "evil.example"})
 
 	if res.code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403: the host check covers every path", res.code)
@@ -1014,12 +1291,11 @@ func TestTheIconIsNotServedUnderAnotherHostName(t *testing.T) {
 func TestUnknownPathsAndWrongMethodsAreRefused(t *testing.T) {
 	t.Parallel()
 	h := newHandler(&fakeSettings{snap: running()})
-	cookie := login(t, h)
 
-	if res := send(h, http.MethodGet, "/nothing", nil, cookie, nil); res.code != http.StatusNotFound {
+	if res := send(h, http.MethodGet, "/nothing", nil, nil); res.code != http.StatusNotFound {
 		t.Errorf("GET /nothing = %d, want 404", res.code)
 	}
-	if res := send(h, http.MethodGet, "/save", nil, cookie, nil); res.code != http.StatusMethodNotAllowed {
+	if res := send(h, http.MethodGet, "/save", nil, nil); res.code != http.StatusMethodNotAllowed {
 		t.Errorf("GET /save = %d, want 405", res.code)
 	}
 }

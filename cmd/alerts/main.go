@@ -1,8 +1,9 @@
 // Command alerts relays major Japan emergency alerts to a webhook.
 //
-//	alerts         watch until stopped; opens a settings page in the browser the first time
-//	alerts test    post one test message to the webhook and exit
-//	alerts check   show what the last few days of JMA alerts would have done, and post nothing
+//	alerts            watch until stopped; opens the settings page (on Windows every time, elsewhere the first time)
+//	alerts autostart  the same, started by Windows at sign-in: nothing is shown
+//	alerts test       post one test message to the webhook and exit
+//	alerts check      show what the last few days of JMA alerts would have done, and post nothing
 package main
 
 import (
@@ -30,13 +31,14 @@ import (
 	"github.com/tienduc120/japan-emergency-alerts/internal/jma"
 	"github.com/tienduc120/japan-emergency-alerts/internal/notify"
 	"github.com/tienduc120/japan-emergency-alerts/internal/popup"
+	"github.com/tienduc120/japan-emergency-alerts/internal/startup"
 	"github.com/tienduc120/japan-emergency-alerts/internal/state"
 	"github.com/tienduc120/japan-emergency-alerts/internal/web"
 )
 
 // version is the latest release. The release workflow replaces it with the tag through -ldflags "-X main.version=...",
 // so a build made by hand, which has no tag to read, still says a real version and not "dev". Raise it when tagging.
-var version = "v1.0.1"
+var version = "v1.1.0"
 
 // exitUsage is the conventional code for a command line that was wrong.
 const exitUsage = 2
@@ -64,6 +66,18 @@ type horizoner interface {
 // statuser is a source that can describe its own health in one line, for the heartbeat and the settings page.
 type statuser interface {
 	Status() string
+}
+
+// startupEntry is the start-with-Windows entry: whether Windows starts the program at sign-in, and which program.
+type startupEntry interface {
+	State() (bool, string, error)
+	Enable(exe string) error
+	Disable() error
+}
+
+// healther is a source that can also say whether it works, for the light beside its line on the settings page.
+type healther interface {
+	Health() alert.Health
 }
 
 // sourceConfig is what a source needs to start: where to hand alerts, where to log, and when the previous run last read
@@ -96,20 +110,26 @@ type environment struct {
 	listen func(ctx context.Context) (net.Listener, error)
 	// popupShow shows one window; nil means the operating system's.
 	popupShow popup.ShowFunc
-	sources   sourceFactory
-	stdout    io.Writer
-	stderr    io.Writer
+	// startup is the start-with-Windows entry, nil where the system has none (all but Windows).
+	startup startupEntry
+	// executable is this program's path, which the start-with-Windows entry names.
+	executable func() (string, error)
+	sources    sourceFactory
+	stdout     io.Writer
+	stderr     io.Writer
 }
 
 func liveEnvironment(getenv func(string) string, stdout, stderr io.Writer) environment {
 	return environment{
-		getenv:   getenv,
-		readFile: os.ReadFile,
-		open:     openBrowser,
-		listen:   func(ctx context.Context) (net.Listener, error) { return listenPreferring(ctx, preferredAddress) },
-		sources:  liveSources,
-		stdout:   stdout,
-		stderr:   stderr,
+		getenv:     getenv,
+		readFile:   os.ReadFile,
+		open:       openBrowser,
+		listen:     func(ctx context.Context) (net.Listener, error) { return listenPreferring(ctx, preferredAddress) },
+		startup:    liveStartup(),
+		executable: os.Executable,
+		sources:    liveSources,
+		stdout:     stdout,
+		stderr:     stderr,
 	}
 }
 
@@ -132,7 +152,7 @@ func runMain() int {
 	if !terminal && !isPopupHelper(args) {
 		log := openLogFile(os.Getenv)
 		defer func() { _ = log.Close() }()
-		stdout = redactKeys(log)
+		stdout = log
 		stderr = io.MultiWriter(log, &failure)
 	}
 
@@ -182,8 +202,8 @@ func execute(ctx context.Context, args []string, env environment) int {
 		fmt.Fprintf(env.stderr, "usage: alerts [%s|%s]\n", testCommand, checkCommand)
 		return exitUsage
 	}
-	if command == "" {
-		return serve(ctx, env)
+	if command == "" || command == startup.Marker {
+		return serve(ctx, env, command == startup.Marker)
 	}
 	cfg, ok := loadConfig(env)
 	if !ok {
@@ -209,12 +229,13 @@ func loadConfig(env environment) (config.Config, bool) {
 	return loaded.Config, true
 }
 
-// commandOf reads the command line: nothing means watch, and otherwise exactly one known command.
+// commandOf reads the command line: nothing means watch, and otherwise exactly one known command. The marker also means
+// watch, started by Windows at sign-in.
 func commandOf(args []string) (string, bool) {
 	switch {
 	case len(args) == 0:
 		return "", true
-	case len(args) == 1 && (args[0] == testCommand || args[0] == checkCommand):
+	case len(args) == 1 && (args[0] == testCommand || args[0] == checkCommand || args[0] == startup.Marker):
 		return args[0], true
 	default:
 		return "", false

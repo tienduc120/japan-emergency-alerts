@@ -1,17 +1,15 @@
 // Package web is the settings page: a small, bilingual page served on this computer only, where a person pastes a
 // webhook, ticks the prefectures they are in, and sees what the program has been doing.
 //
-// It is protected because anything on the machine, and any web page open in the person's browser, can try to reach a
-// local server. The address carries a secret key that is swapped for a cookie, the cookie is SameSite=Strict, the
-// Host header must be one of ours (against DNS rebinding), and every change must come from this page's own origin.
+// Any web page open in the person's browser can try to reach a local server, so the Host header must be one of ours
+// (against DNS rebinding) and every change must come from this page's own origin. There is no key: the maintainer
+// chose to open the page from its plain address, which also lets any program or account on this computer open it.
 package web
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"html/template"
 	"net/http"
@@ -19,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tienduc120/japan-emergency-alerts/internal/alert"
 	"github.com/tienduc120/japan-emergency-alerts/internal/config"
 )
 
@@ -27,9 +26,7 @@ import (
 const ServerName = "japan-emergency-alerts"
 
 const (
-	cookieName   = "session"
 	againParam   = "again"
-	sessionBytes = 16
 	nonceBytes   = 16
 	maxFormBytes = 1 << 16
 	jstOffset    = 9 * 60 * 60
@@ -44,6 +41,15 @@ type Activity struct {
 	Text   string
 	Result string
 	Sent   bool
+	// Elsewhere marks an alert for a place that is not watched. There are many and they are about someone else, so the
+	// list shows them last.
+	Elsewhere bool
+}
+
+// Source is one line about the health of a feed, and the colour of its light.
+type Source struct {
+	Text  string       `json:"text"`
+	State alert.Health `json:"state"`
 }
 
 // Snapshot is what the page shows, taken at one moment.
@@ -55,10 +61,13 @@ type Snapshot struct {
 	// PopupDefault says whether the pop-up box starts ticked when nothing has been saved yet, which suits a computer
 	// with a screen in front of someone, and not a server.
 	PopupDefault bool
-	Running      bool
-	Summary      string
+	// StartupOffered says the system can start the program at sign-in (Windows); StartupOn, that it will.
+	StartupOffered bool
+	StartupOn      bool
+	Running        bool
+	Summary        string
 	// Sources are one line each about the health of the feeds.
-	Sources []string
+	Sources []Source
 	// Recent is newest first.
 	Recent []Activity
 }
@@ -68,7 +77,7 @@ type Settings interface {
 	Snapshot() Snapshot
 	// Save checks and keeps the settings and starts watching with them. Problems with a setting come back as
 	// config.FieldError values, joined.
-	Save(ctx context.Context, f config.File) error
+	Save(ctx context.Context, f config.File, startWithWindows bool) error
 	// Test sends a test message to the webhook. An empty webhook means the saved one.
 	Test(ctx context.Context, webhook string) error
 	// TestPopup shows a test pop-up window on this computer.
@@ -79,9 +88,6 @@ type Settings interface {
 
 // Options say how the server identifies itself and who may talk to it.
 type Options struct {
-	// Key is the secret in the address the person opens. It stays valid while the program runs, because the cookie it
-	// is swapped for ends with the browser.
-	Key string
 	// Hosts are the Host header values that are ours, such as "127.0.0.1:47600".
 	Hosts   []string
 	Version string
@@ -89,17 +95,15 @@ type Options struct {
 
 type server struct {
 	app     Settings
-	key     string
 	hosts   []string
 	version string
-	session string
 	tmpl    *template.Template
 }
 
 // New returns the page's handler.
 func New(app Settings, opts Options) http.Handler {
 	return &server{
-		app: app, key: opts.Key, hosts: opts.Hosts, version: opts.Version, session: random(sessionBytes),
+		app: app, hosts: opts.Hosts, version: opts.Version,
 		// The page is built into the program, so a mistake in it shows at start-up in every test, not on a visitor.
 		tmpl: template.Must(template.New("page").Parse(pageSource)),
 	}
@@ -111,25 +115,10 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if r.URL.Path == "/favicon.ico" && r.Method == http.MethodGet {
-		// A browser asks for the icon without the page's cookie, and the icon is not a secret.
+	switch r.URL.Path {
+	case "/favicon.ico":
 		w.Header().Set("Content-Type", "image/x-icon")
 		_, _ = w.Write(faviconData)
-		return
-	}
-	if r.URL.Path == "/" && r.Method == http.MethodGet && r.URL.Query().Has("key") {
-		s.login(w, r)
-		return
-	}
-	if !s.authenticated(r) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("Open the settings address shown in the program's window; it carries a key.\n" +
-			"プログラムのウィンドウに表示されているアドレスを開いてください。\n"))
-		return
-	}
-
-	switch r.URL.Path {
 	case "/":
 		s.page(w, r)
 	case "/status.json":
@@ -145,30 +134,6 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
-}
-
-func (s *server) login(w http.ResponseWriter, r *http.Request) {
-	if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("key")), []byte(s.key)) != 1 {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	http.SetCookie(
-		w,
-		&http.Cookie{ //nolint:gosec // plain http on loopback: browsers that refuse Secure there would drop it
-			Name: cookieName, Value: s.session, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-		},
-	)
-	target := "/"
-	if r.URL.Query().Get(againParam) == "1" {
-		// A second copy of the program asked for this page; the page says so, and where to stop the first one.
-		target += "?" + againParam + "=1"
-	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
-}
-
-func (s *server) authenticated(r *http.Request) bool {
-	c, err := r.Cookie(cookieName)
-	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.session)) == 1
 }
 
 // post runs a handler that changes something, after checking that the request came from this page and not from
@@ -238,10 +203,10 @@ func (s *server) status(w http.ResponseWriter, _ *http.Request) {
 	reply := struct {
 		Running bool     `json:"running"`
 		Summary string   `json:"summary"`
-		Sources []string `json:"sources"`
+		Sources []Source `json:"sources"`
 		Recent  []item   `json:"recent"`
 	}{Running: snap.Running, Summary: snap.Summary, Sources: nonNil(snap.Sources), Recent: []item{}}
-	for _, a := range snap.Recent {
+	for _, a := range listed(snap.Recent) {
 		reply.Recent = append(reply.Recent, item{
 			When: inJST(a.When), Label: a.Label, Title: a.Title, Text: a.Text, Result: a.Result, Sent: a.Sent,
 		})
@@ -250,9 +215,25 @@ func (s *server) status(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(reply)
 }
 
-func nonNil(list []string) []string {
+// listed is the order the page shows activity in: as it came, newest first, with the alerts for elsewhere moved last.
+func listed(recent []Activity) []Activity {
+	out := slices.Clone(recent)
+	slices.SortStableFunc(out, func(a, b Activity) int {
+		switch {
+		case a.Elsewhere == b.Elsewhere:
+			return 0
+		case b.Elsewhere:
+			return -1
+		default:
+			return 1
+		}
+	})
+	return out
+}
+
+func nonNil[T any](list []T) []T {
 	if list == nil {
-		return []string{}
+		return []T{}
 	}
 	return list
 }
@@ -279,14 +260,6 @@ func setHeaders(w http.ResponseWriter, nonce string) {
 	// Not no-referrer: with that policy a browser sends "Origin: null" when the page's own form is posted, and the check
 	// on POST would refuse every save. same-origin still tells other sites nothing.
 	h.Set("Referrer-Policy", "same-origin")
-}
-
-func random(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic("no randomness available: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }
 
 func nonce() string {

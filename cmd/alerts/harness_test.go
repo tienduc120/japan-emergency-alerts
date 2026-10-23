@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -33,7 +34,7 @@ func testEnvironment(getenv func(string) string, stdout, stderr io.Writer, sourc
 	}
 }
 
-var settingsAddress = regexp.MustCompile(`Settings page: (http://127\.0\.0\.1:\d+/\?key=[0-9a-f]+)`)
+var settingsAddress = regexp.MustCompile(`Settings page: (http://127\.0\.0\.1:\d+/)\s`)
 
 // harness runs the whole program in the background against a temporary settings file.
 type harness struct {
@@ -70,10 +71,63 @@ func newHarness(t *testing.T, settings map[string]string, sources sourceFactory)
 	return h
 }
 
+const fakeExe = `C:\apps\alerts.exe`
+
+// fakeStartup stands for the start-with-Windows entry, so no test touches the registry. Setting one on a harness also
+// makes the program behave as on Windows.
+type fakeStartup struct {
+	mu        sync.Mutex
+	on        bool
+	exe       string
+	enableErr error
+	enabled   []string
+	disabled  int
+}
+
+func (f *fakeStartup) State() (bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.on, f.exe, nil
+}
+
+func (f *fakeStartup) Enable(exe string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.enableErr != nil {
+		return f.enableErr
+	}
+	f.on, f.exe = true, exe
+	f.enabled = append(f.enabled, exe)
+	return nil
+}
+
+func (f *fakeStartup) Disable() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.on = false
+	f.disabled++
+	return nil
+}
+
+func (f *fakeStartup) calls() ([]string, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.enabled...), f.disabled
+}
+
+// onWindows gives the harness a start-with-Windows entry and a path for the program.
+func (h *harness) onWindows(entry *fakeStartup) {
+	h.env.startup = entry
+	h.env.executable = func() (string, error) { return fakeExe, nil }
+}
+
 // start runs the program until ctx ends and delivers its exit code.
-func (h *harness) start(ctx context.Context) <-chan int {
+func (h *harness) start(ctx context.Context) <-chan int { return h.startWith(ctx, nil) }
+
+// startWith is start with a command line, such as the marker the start-with-Windows entry adds.
+func (h *harness) startWith(ctx context.Context, args []string) <-chan int {
 	done := make(chan int, 1)
-	go func() { done <- execute(ctx, nil, h.env) }()
+	go func() { done <- execute(ctx, args, h.env) }()
 	return done
 }
 
@@ -93,7 +147,7 @@ func (h *harness) address() string {
 	}
 }
 
-// browser is a person at the settings page: it keeps the cookie and says where its requests come from.
+// browser is a person at the settings page: it says where its requests come from, as a browser does.
 type browser struct {
 	t      *testing.T
 	client *http.Client
@@ -123,7 +177,7 @@ func newBrowser(t *testing.T, address string) *browser {
 	}
 }
 
-// signIn opens the address the program printed, which swaps its key for a cookie and lands on the page.
+// signIn opens the address the program printed, as a person does.
 func (b *browser) signIn(address string) (int, string) {
 	b.t.Helper()
 	u, err := url.Parse(address)
@@ -133,7 +187,7 @@ func (b *browser) signIn(address string) (int, string) {
 	return b.get(u.RequestURI())
 }
 
-// get follows the redirect from the key address to the page, as a browser does.
+// get follows one redirect, as a browser does.
 func (b *browser) get(path string) (int, string) {
 	b.t.Helper()
 	status, body := b.request(http.MethodGet, path, nil)

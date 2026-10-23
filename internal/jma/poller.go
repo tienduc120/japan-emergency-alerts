@@ -86,6 +86,7 @@ type Poller struct {
 
 	mu      sync.Mutex
 	horizon time.Time
+	started time.Time
 }
 
 // catchUpEpisode is the state of catching up on one gap, so the large long feeds are read once per gap, and only a few
@@ -155,6 +156,9 @@ func NewPoller(cfg Config) *Poller {
 // have gone unread for longer than staleAfter (a sleeping laptop, a network outage), anything published since is relayed
 // instead, marked late.
 func (p *Poller) Run(ctx context.Context) error {
+	p.mu.Lock()
+	p.started = p.clock.Now()
+	p.mu.Unlock()
 	for ctx.Err() == nil {
 		p.cycle(ctx)
 		if err := sleep(ctx, p.interval); err != nil {
@@ -253,19 +257,43 @@ func (p *Poller) setHorizon(t time.Time) {
 	p.episode = catchUpEpisode{feeds: map[string]bool{}}
 }
 
-// Status is one line about the feeds, for the heartbeat.
+// Status is one line about the feeds, for the heartbeat and the settings page.
 func (p *Poller) Status() string {
-	horizon := p.Horizon()
-	age := p.clock.Now().Sub(horizon)
+	now := p.clock.Now()
+	health, horizon, started := p.health(now)
 	switch {
-	case horizon.IsZero():
+	case health == alert.Starting:
 		return "JMA feeds: not read yet"
-	case age > staleAfter:
+	case horizon.IsZero():
+		return "JMA feeds: NOT read yet, trying since " + inJST(started)
+	case health == alert.Down:
 		return "JMA feeds: NOT read since " + inJST(horizon)
-	case age < time.Minute:
+	case now.Sub(horizon) < time.Minute:
 		return "JMA feeds: OK, last read in full less than a minute ago"
 	default:
-		return fmt.Sprintf("JMA feeds: OK, last read in full %d minutes ago", int(age.Minutes()))
+		return fmt.Sprintf("JMA feeds: OK, last read in full %d minutes ago", int(now.Sub(horizon).Minutes()))
+	}
+}
+
+// Health is the light beside Status on the settings page.
+func (p *Poller) Health() alert.Health {
+	health, _, _ := p.health(p.clock.Now())
+	return health
+}
+
+// health is read once for Status and Health, so the line and its light agree. Feeds never read count from the start, so
+// a network that never lets them through (a hotel's login page) turns the light red instead of leaving it waiting.
+func (p *Poller) health(now time.Time) (alert.Health, time.Time, time.Time) {
+	p.mu.Lock()
+	horizon, started := p.horizon, p.started
+	p.mu.Unlock()
+	switch {
+	case horizon.IsZero() && (started.IsZero() || now.Sub(started) <= staleAfter):
+		return alert.Starting, horizon, started
+	case horizon.IsZero(), now.Sub(horizon) > staleAfter:
+		return alert.Down, horizon, started
+	default:
+		return alert.Up, horizon, started
 	}
 }
 
